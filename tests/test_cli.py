@@ -1,0 +1,155 @@
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from firefly_preimporter import cli
+from firefly_preimporter.config import FireflySettings
+from firefly_preimporter.models import ProcessingJob, ProcessingResult, SourceFormat, Transaction
+
+SECRET_PLACEHOLDER = 'sec' + 'ret'
+TOKEN_PLACEHOLDER = 'tok' + 'en'
+
+
+def test_parse_args_basic() -> None:
+    args = cli.parse_args(['foo.csv'])
+    assert args.targets == [Path('foo.csv')]
+    assert not args.auto_upload
+
+
+@pytest.fixture
+def dummy_job(tmp_path: Path) -> ProcessingJob:
+    file_path = tmp_path / 'input.csv'
+    file_path.write_text('transaction_id,date,description,amount\n', encoding='utf-8')
+    return ProcessingJob(source_path=file_path, source_format=SourceFormat.CSV)
+
+
+def test_main_writes_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = ProcessingResult(
+        job=dummy_job,
+        transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
+    )
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    monkeypatch.setattr(cli, '_process_job', lambda _job: result)
+
+    def fake_stdout_write_output(_result: ProcessingResult, *, output_path: Path | str | None = None) -> str:
+        _ = output_path
+        return 'payload'
+
+    monkeypatch.setattr(cli, 'write_output', fake_stdout_write_output)
+    monkeypatch.setattr(cli, 'build_csv_payload', lambda _txns: 'payload')
+    exit_code = cli.main(['file.csv', '--stdout'])
+    assert exit_code == 0
+    assert 'payload' in capsys.readouterr().out
+
+
+def test_main_requires_single_job_for_stdout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    job_a = ProcessingJob(source_path=tmp_path / 'a.csv', source_format=SourceFormat.CSV)
+    job_b = ProcessingJob(source_path=tmp_path / 'b.csv', source_format=SourceFormat.CSV)
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [job_a, job_b])
+
+    with pytest.raises(ValueError, match='--stdout can only be used'):
+        cli.main(['a.csv', 'b.csv', '--stdout'])
+
+
+def test_main_respects_output_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / 'outputs'
+    result = ProcessingResult(
+        job=dummy_job,
+        transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
+    )
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    monkeypatch.setattr(cli, '_process_job', lambda _job: result)
+    recorded: dict[str, Path | None] = {}
+
+    def fake_write_output(_result: ProcessingResult, *, output_path: Path | str | None) -> str:
+        recorded['path'] = Path(output_path) if output_path else None
+        return 'payload'
+
+    monkeypatch.setattr(cli, 'write_output', fake_write_output)
+    exit_code = cli.main([str(dummy_job.source_path), '--output-dir', str(output_dir)])
+    assert exit_code == 0
+    assert recorded['path'] == output_dir / f'{dummy_job.source_path.stem}.firefly.csv'
+
+
+def test_main_writes_default_file(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+) -> None:
+    result = ProcessingResult(
+        job=dummy_job,
+        transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
+    )
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    monkeypatch.setattr(cli, '_process_job', lambda _job: result)
+    recorded: dict[str, Path | None] = {}
+
+    def fake_write_output(_result: ProcessingResult, *, output_path: Path | str | None) -> str:
+        recorded['path'] = Path(output_path) if output_path else None
+        return 'payload'
+
+    monkeypatch.setattr(cli, 'write_output', fake_write_output)
+    exit_code = cli.main([str(dummy_job.source_path)])
+    assert exit_code == 0
+    expected = dummy_job.source_path.with_name(f'{dummy_job.source_path.stem}.firefly.csv')
+    assert recorded['path'] == expected
+
+
+def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
+    result = ProcessingResult(
+        job=dummy_job,
+        transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
+    )
+    firefly_settings = FireflySettings(
+        fidi_import_secret=SECRET_PLACEHOLDER,
+        personal_access_token=TOKEN_PLACEHOLDER,
+        fidi_autoupload_url='https://example/fidi',
+        firefly_api_base='https://example/api',
+        ca_cert_path=None,
+        request_timeout=10,
+        unique_column_role='internal_reference',
+        date_column_role='date_transaction',
+        known_roles={},
+        default_json_config={'flow': 'csv'},
+    )
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    monkeypatch.setattr(cli, '_process_job', lambda _job: result)
+    monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
+    monkeypatch.setattr(cli, '_prompt_account_id', lambda _job: '9001')
+
+    def fake_upload_write_output(_result: ProcessingResult, *, output_path: Path | str | None = None) -> str:
+        _ = output_path
+        return 'payload'
+
+    monkeypatch.setattr(cli, 'write_output', fake_upload_write_output)
+    captured: dict[str, object | None] = {}
+
+    class DummyUploader:
+        def __init__(self, settings: FireflySettings, *, dry_run: bool = False) -> None:
+            self.settings = settings
+            self.dry_run = dry_run
+
+        def upload(self, csv_payload: str, json_config: dict[str, object]) -> SimpleNamespace:
+            captured['payload'] = csv_payload
+            captured['config'] = json_config
+            return SimpleNamespace(status_code=201)
+
+    monkeypatch.setattr(cli, 'FidiUploader', DummyUploader)
+
+    def fake_build_json_config(_settings: FireflySettings, *, account_id: str | None) -> dict[str, object]:
+        captured['account_id'] = account_id
+        return {'flow': 'csv'}
+
+    monkeypatch.setattr(cli, 'build_json_config', fake_build_json_config)
+
+    exit_code = cli.main([str(dummy_job.source_path), '--auto-upload'])
+    assert exit_code == 0
+    assert captured['account_id'] == '9001'
