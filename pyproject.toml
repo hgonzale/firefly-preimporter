@@ -20,35 +20,62 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 package = true
-dev-dependencies = [
+cache-dir = ".uv-cache"
+default-groups = ["dev"]
+
+# Development dependency group definition (see https://docs.astral.sh/uv/reference/settings/#dependency-groups)
+[dependency-groups]
+dev = [
   "pytest>=8.3",
   "ruff>=0.6.9",
   "tox>=4.18",
-  "tox-uv>=1.11"
+  "tox-uv>=1.11",
+  "mypy>=1.11",
 ]
 
 [tool.ruff]
-line-length = 120
 src = ["src", "tests"]
 show-fixes = true
-lint.select = [
-  "E",
-  "F",
-  "I",
-  "UP",
-  "B",
-  "ARG",
-  "S",
-]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]
+line-length = 120
 
 [tool.ruff.format]
 preview = true
 quote-style = "single"
 indent-style = "space"
 
+[tool.ruff.lint]
+select = [
+  "ALL",
+]
+ignore = [
+  "C90",
+  "COM812",
+  "D",
+  "DTZ",
+  "EM",
+  "PERF",
+  "PLR",
+  "T20",
+  "TRY",
+]
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "single"
+multiline-quotes = "double"
+docstring-quotes = "double"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["firefly_preimporter"]
+scripts_are_modules = true
+warn_unused_configs = true
+warn_unused_ignores = true
+strict_optional = true
+pretty = true

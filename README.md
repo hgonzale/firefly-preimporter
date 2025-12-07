@@ -2,65 +2,24 @@
 
 This repository contains the Firefly preimporter toolkit. The project is managed with [uv](https://github.com/astral-sh/uv) for dependency management, [Ruff](https://docs.astral.sh/ruff/) for linting/formatting, and [tox](https://tox.wiki/) for automation.
 
-## Getting started
+## Purpose
 
-1. **Install uv** (if it is not already available): `curl -LsSf https://astral.sh/uv/install.sh | sh`
-2. **Create the virtual environment and install dependencies:**
+Firefly Preimporter is a transaction statement preprocessor: it ingests downloads from financial institutions (such as CSV or OFX statements), normalizes the data, and produces files compatible with the Firefly III Data Importer (FiDI). Every dataset we emit for FiDI includes these columns: account ID, transaction ID, date, description, and amount.
 
-   ```bash
-   uv sync
-   ```
+Output is provided in two forms:
 
-   This installs the package in editable mode along with the dev dependencies defined in `pyproject.toml`.
+1. A `.csv`/`.json` pair that FiDI can ingest manually.
+2. An automated upload path that performs POST requests to FiDI directly.
 
-3. **Activate the environment (optional):**
+## Requirements
 
-   ```bash
-   source .venv/bin/activate
-   ```
+- [uv](https://github.com/astral-sh/uv) (installs dependencies and creates the `.venv` used throughout)
 
-## Common tasks
+After installing uv, run `uv sync` to set up the virtual environment and project dependencies.
 
-- **Run the test suite:**
+## Tox commands
 
-  ```bash
-  uv run pytest
-  # or
-  tox -e py311
-  ```
-
-- **Lint & format:**
-
-  ```bash
-  uv run ruff check src tests
-  uv run ruff format src tests
-  # or run both via tox
-  tox -e lint
-  ```
-
-- **Update dependencies:**
-
-  ```bash
-  uv add <package>
-  uv remove <package>
-  ```
-
-## Repository layout
-
+```bash
+tox -e py311   # run the pytest suite
+tox -e lint    # Ruff lint + format checks
 ```
-.
-├── LICENSE
-├── README.md
-├── pyproject.toml
-├── src/
-│   └── firefly_preimporter/
-│       └── __init__.py
-└── tests/
-    └── test_package.py
-```
-
-## Next steps
-
-- Flesh out the package contents under `src/firefly_preimporter/`.
-- Expand the test suite alongside new functionality.
-- Consider CI automation (e.g., GitHub Actions) once the initial implementation is in place.
