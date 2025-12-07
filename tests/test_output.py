@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from firefly_preimporter.config import FireflySettings
 from firefly_preimporter.models import ProcessingJob, ProcessingResult, SourceFormat, Transaction
 from firefly_preimporter.output import build_csv_payload, build_json_config, write_output
@@ -55,3 +57,18 @@ def test_write_output_writes_file(tmp_path: Path) -> None:
     csv_payload = write_output(result, output_path=output_file)
     with output_file.open('r', encoding='utf-8', newline='') as handle:
         assert handle.read() == csv_payload
+
+
+def test_build_csv_payload_requires_iterable() -> None:
+    with pytest.raises(TypeError):
+        build_csv_payload(123)  # type: ignore[arg-type]
+
+
+def test_build_json_config_requires_settings() -> None:
+    with pytest.raises(TypeError):
+        build_json_config(object(), account_id=None)  # type: ignore[arg-type]
+
+
+def test_write_output_requires_processing_result() -> None:
+    with pytest.raises(TypeError):
+        write_output(object(), output_path=None)  # type: ignore[arg-type]

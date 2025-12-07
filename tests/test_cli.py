@@ -1,3 +1,4 @@
+from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -103,6 +104,12 @@ def test_main_writes_default_file(
     assert recorded['path'] == expected
 
 
+def test_process_job_unknown_format(tmp_path: Path) -> None:
+    job = ProcessingJob(source_path=tmp_path / 'weird.bin', source_format=SourceFormat.UNKNOWN)
+    with pytest.raises(ValueError, match='No processor'):
+        cli._process_job(job)  # noqa: SLF001
+
+
 def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
     result = ProcessingResult(
         job=dummy_job,
@@ -123,7 +130,14 @@ def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: Pr
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
-    monkeypatch.setattr(cli, '_prompt_account_id', lambda _job: '9001')
+    fetch_calls = {'count': 0}
+
+    def fake_fetch(_settings: FireflySettings) -> list[dict[str, object]]:
+        fetch_calls['count'] += 1
+        return [{'id': '123', 'attributes': {'name': 'Checking'}}]
+
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', fake_fetch)
+    monkeypatch.setattr(cli, '_prompt_account_id', lambda _job, _accounts: '9001')
 
     def fake_upload_write_output(_result: ProcessingResult, *, output_path: Path | str | None = None) -> str:
         _ = output_path
@@ -153,3 +167,59 @@ def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: Pr
     exit_code = cli.main([str(dummy_job.source_path), '--auto-upload'])
     assert exit_code == 0
     assert captured['account_id'] == '9001'
+    assert fetch_calls['count'] == 1
+
+
+def test_prompt_account_id_accepts_numeric(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
+    accounts: list[dict[str, object]] = [{'id': '42', 'attributes': {'name': 'Checking'}}]
+    responses = iter(['', '1'])
+    monkeypatch.setattr('builtins.input', lambda _prompt: next(responses))
+    selected = cli._prompt_account_id(dummy_job, accounts)  # noqa: SLF001
+    assert selected == '42'
+
+
+def test_prompt_account_id_accepts_id(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
+    accounts: list[dict[str, object]] = [{'id': '99', 'attributes': {'name': 'Savings'}}]
+    monkeypatch.setattr('builtins.input', lambda _prompt: '99')
+    assert cli._prompt_account_id(dummy_job, accounts) == '99'  # noqa: SLF001
+
+
+def test_resolve_account_id_prefers_result(dummy_job: ProcessingJob) -> None:
+    args = Namespace(auto_upload=False)
+    result = ProcessingResult(job=dummy_job, account_id='777')
+    resolved = cli._resolve_account_id(result, args, None)  # noqa: SLF001
+    assert resolved == '777'
+
+
+def test_resolve_account_id_uses_cached(dummy_job: ProcessingJob) -> None:
+    args = Namespace(auto_upload=True, cached_account_id='555')
+    result = ProcessingResult(job=dummy_job, account_id=None)
+    resolved = cli._resolve_account_id(result, args, None)  # noqa: SLF001
+    assert resolved == '555'
+
+
+def test_resolve_account_id_uses_flag(dummy_job: ProcessingJob) -> None:
+    args = Namespace(auto_upload=False, account_id='444')
+    result = ProcessingResult(job=dummy_job, account_id=None)
+    resolved = cli._resolve_account_id(result, args, None)  # noqa: SLF001
+    assert resolved == '444'
+
+
+def test_main_rejects_conflicting_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    with pytest.raises(ValueError, match='Use either --output or --output-dir'):
+        cli.main([str(tmp_path / 'file.csv'), '--output', 'out.csv', '--output-dir', str(tmp_path)])
+
+
+def test_main_rejects_stdout_with_output(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    with pytest.raises(ValueError, match='--stdout is incompatible'):
+        cli.main([str(tmp_path / 'file.csv'), '--stdout', '--output', 'out.csv'])

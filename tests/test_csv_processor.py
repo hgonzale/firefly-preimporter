@@ -3,7 +3,11 @@ from pathlib import Path
 import pytest
 
 from firefly_preimporter.models import ProcessingJob, SourceFormat
-from firefly_preimporter.processors.csv_processor import process_csv
+from firefly_preimporter.processors.csv_processor import (
+    normalize_amount,
+    normalize_date,
+    process_csv,
+)
 
 
 @pytest.fixture
@@ -37,3 +41,13 @@ def test_process_csv_missing_header(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match='no header'):
         process_csv(job)
+
+
+def test_normalize_date_invalid() -> None:
+    with pytest.raises(ValueError, match='unrecognized date'):
+        normalize_date('31/31/2024')
+
+
+def test_normalize_amount_invalid() -> None:
+    with pytest.raises(ValueError, match='unrecognized amount'):
+        normalize_amount('abc')

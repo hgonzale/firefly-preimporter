@@ -39,6 +39,12 @@ def test_iter_jobs_file_unknown_extension(tmp_path: Path) -> None:
         list(iter_jobs(weird))
 
 
+def test_iter_jobs_missing_path(tmp_path: Path) -> None:
+    missing = tmp_path / 'unknown'
+    with pytest.raises(FileNotFoundError):
+        list(iter_jobs(missing))
+
+
 def test_gather_jobs_multiple_targets(tmp_path: Path) -> None:
     csv_file = tmp_path / 'first.csv'
     csv_file.write_text('header\n', encoding='utf-8')

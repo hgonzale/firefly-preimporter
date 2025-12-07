@@ -5,6 +5,7 @@ class Response:
     _content: bytes
     def __init__(self) -> None: ...
     def raise_for_status(self) -> None: ...
+    def json(self) -> Mapping[str, object]: ...
 
 class Session:
     def __init__(self) -> None: ...
@@ -15,6 +16,15 @@ class Session:
         headers: Mapping[str, str] | None = ...,
         data: Mapping[str, str] | None = ...,
         files: Mapping[str, tuple[str, bytes, str]] | None = ...,
+        timeout: float | None = ...,
+        verify: bool | str | None = ...,
+    ) -> Response: ...
+    def get(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = ...,
+        params: Mapping[str, object] | None = ...,
         timeout: float | None = ...,
         verify: bool | str | None = ...,
     ) -> Response: ...

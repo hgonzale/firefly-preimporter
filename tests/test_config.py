@@ -44,3 +44,10 @@ def test_load_settings_merges_overrides(tmp_path: Path) -> None:
     # default_json_config should retain unspecified defaults
     assert settings.default_json_config['duplicate_detection_method'] == 'cell'
     assert settings.known_roles['memo'] == 'description'
+
+
+def test_load_settings_uses_default_json_when_missing(tmp_path: Path) -> None:
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text('personal_access_token = "abc"\n', encoding='utf-8')
+    settings = load_settings(config_file)
+    assert settings.default_json_config['flow'] == 'csv'

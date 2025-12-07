@@ -7,8 +7,9 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from firefly_preimporter.config import load_settings
+from firefly_preimporter.config import FireflySettings, load_settings
 from firefly_preimporter.detect import gather_jobs
+from firefly_preimporter.firefly_api import fetch_asset_accounts, format_account_label
 from firefly_preimporter.models import ProcessingJob, ProcessingResult, SourceFormat, Transaction
 from firefly_preimporter.output import build_csv_payload, build_json_config, write_output
 from firefly_preimporter.processors.csv_processor import process_csv as process_csv_file
@@ -42,18 +43,33 @@ def _emit(message: str, args: argparse.Namespace, *, verbose_only: bool = False,
     print(message, file=stream)
 
 
-def _prompt_account_id(job: ProcessingJob) -> str:
-    """Prompt the user for an account id when the processor cannot derive one."""
+def _prompt_account_id(job: ProcessingJob, accounts: list[dict[str, object]]) -> str:
+    """Prompt the user to choose an account id using the fetched ``accounts`` list."""
 
-    prompt = f'Enter Firefly account id for {job.source_path.name}: '
+    print('Available asset accounts:')
+    for idx, account in enumerate(accounts, start=1):
+        print(f'  [{idx}] {format_account_label(account)}')
+
+    prompt = f'Select account for {job.source_path.name} (number or Firefly id): '
     while True:
         response = input(prompt).strip()
-        if response:
-            return response
-        print('Account id is required for auto-upload.', file=sys.stderr)
+        if not response:
+            continue
+        if response.isdigit():
+            selected = int(response)
+            if 1 <= selected <= len(accounts):
+                return str(accounts[selected - 1].get('id'))
+        for account in accounts:
+            if str(account.get('id')) == response:
+                return str(account.get('id'))
+        print('Invalid selection, try again.', file=sys.stderr)
 
 
-def _resolve_account_id(result: ProcessingResult, args: argparse.Namespace) -> str | None:
+def _resolve_account_id(
+    result: ProcessingResult,
+    args: argparse.Namespace,
+    settings: FireflySettings | None,
+) -> str | None:
     """Return the best account id candidate for the current job."""
 
     if result.account_id:
@@ -68,7 +84,13 @@ def _resolve_account_id(result: ProcessingResult, args: argparse.Namespace) -> s
         return args.account_id
 
     if args.auto_upload:
-        chosen = _prompt_account_id(result.job)
+        if settings is None:
+            raise ValueError('Auto-upload requires Firefly settings for account selection')
+        accounts = getattr(args, 'cached_asset_accounts', None)
+        if accounts is None:
+            accounts = fetch_asset_accounts(settings)
+            args.cached_asset_accounts = accounts
+        chosen = _prompt_account_id(result.job, accounts)
         args.cached_account_id = chosen
         return chosen
 
@@ -88,7 +110,7 @@ def _write_and_upload(result: ProcessingResult, args: argparse.Namespace, upload
     else:
         csv_payload = write_output(result, output_path=destination)
     if args.auto_upload and uploader and result.has_transactions():
-        account_id = _resolve_account_id(result, args)
+        account_id = _resolve_account_id(result, args, uploader.settings)
         json_config = build_json_config(uploader.settings, account_id=account_id)
         response = uploader.upload(csv_payload, json_config)
         _emit(f'Uploaded {result.job.source_path.name}: {response.status_code}', args)
