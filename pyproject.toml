@@ -1,0 +1,54 @@
+[project]
+name = "firefly-preimporter"
+version = "0.1.0"
+description = "Data preparation helpers for Firefly imports."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "H" }
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://example.com/firefly-preimporter"
+Issues = "https://example.com/firefly-preimporter/issues"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+dev-dependencies = [
+  "pytest>=8.3",
+  "ruff>=0.6.9",
+  "tox>=4.18",
+  "tox-uv>=1.11"
+]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+show-fixes = true
+lint.select = [
+  "E",
+  "F",
+  "I",
+  "UP",
+  "B",
+  "ARG",
+  "S",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.ruff.format]
+preview = true
+quote-style = "single"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
