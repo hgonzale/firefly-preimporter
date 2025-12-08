@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - Notify users when `--dry-run` skips auto-upload to avoid silent no-op.
 
+### Changed
+
+- Swapped the static type checker from mypy to Pyright (tox `types` now runs `pyright`).
+
 ## [0.1.0] - 2025-12-07
 
 ### Added

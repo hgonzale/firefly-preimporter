@@ -37,6 +37,6 @@ After installing uv, run `uv sync` to set up the virtual environment and project
 ```bash
 tox -e py311   # run the pytest suite with coverage (fails under 85%)
 tox -e lint    # Ruff lint + format checks
-tox -e types   # mypy type checking
+tox -e types   # Pyright type checking
 tox -e format  # auto-fix style issues with Ruff
 ```

@@ -97,7 +97,12 @@ def _resolve_account_id(
     return None
 
 
-def _write_and_upload(result: ProcessingResult, args: argparse.Namespace, uploader: FidiUploader | None) -> str:
+def _write_and_upload(
+    result: ProcessingResult,
+    args: argparse.Namespace,
+    uploader: FidiUploader | None,
+    settings: FireflySettings | None,
+) -> str:
     destination: Path | None = args.output
     if args.output_dir and destination is None:
         destination = Path(args.output_dir) / f'{result.job.source_path.stem}.firefly.csv'
@@ -110,6 +115,9 @@ def _write_and_upload(result: ProcessingResult, args: argparse.Namespace, upload
     else:
         csv_payload = write_output(result, output_path=destination)
     if args.auto_upload and args.dry_run and result.has_transactions():
+        if settings is None:
+            raise ValueError('Auto-upload requires Firefly settings for account selection')
+        _ = _resolve_account_id(result, args, settings)
         _emit(f'Dry-run: skipped uploading {result.job.source_path.name}.', args)
     elif args.auto_upload and uploader and result.has_transactions():
         account_id = _resolve_account_id(result, args, uploader.settings)
@@ -163,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         _emit(result.summary(), args)
         for warning in result.warnings:
             _emit(f'Warning: {warning}', args, error=True)
-        payload = _write_and_upload(result, args, uploader)
+        payload = _write_and_upload(result, args, uploader, settings)
         if args.stdout:
             stdout_payload = payload
 

@@ -1,6 +1,7 @@
 from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -258,8 +259,14 @@ def test_main_reports_dry_run_upload(
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
-    accounts = [{'id': '1', 'attributes': {'name': 'Checking'}}]
-    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    accounts = cast('list[dict[str, object]]', [{'id': '1', 'attributes': {'name': 'Checking'}}])
+    fetch_calls = {'count': 0}
+
+    def fake_fetch(_settings: FireflySettings) -> list[dict[str, object]]:
+        fetch_calls['count'] += 1
+        return accounts
+
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', fake_fetch)
     monkeypatch.setattr(cli, '_prompt_account_id', lambda _job, _accounts: '1')
     monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'payload')  # noqa: ARG005
 
@@ -267,3 +274,4 @@ def test_main_reports_dry_run_upload(
     assert exit_code == 0
     captured = capsys.readouterr()
     assert 'Dry-run: skipped uploading' in captured.out
+    assert fetch_calls['count'] == 1
