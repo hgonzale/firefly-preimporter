@@ -201,18 +201,44 @@ def test_resolve_account_id_prefers_result(dummy_job: ProcessingJob) -> None:
     assert resolved == '777'
 
 
-def test_resolve_account_id_uses_cached(dummy_job: ProcessingJob) -> None:
-    args = Namespace(auto_upload=True, cached_account_id='555')
-    result = ProcessingResult(job=dummy_job, account_id=None)
-    resolved = cli._resolve_account_id(result, args, None)  # noqa: SLF001
-    assert resolved == '555'
-
-
 def test_resolve_account_id_uses_flag(dummy_job: ProcessingJob) -> None:
     args = Namespace(auto_upload=False, account_id='444')
     result = ProcessingResult(job=dummy_job, account_id=None)
     resolved = cli._resolve_account_id(result, args, None)  # noqa: SLF001
     assert resolved == '444'
+
+
+def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
+    args = Namespace(auto_upload=True)
+    settings = FireflySettings(
+        fidi_import_secret=SECRET_PLACEHOLDER,
+        personal_access_token=TOKEN_PLACEHOLDER,
+        fidi_autoupload_url='https://example/fidi',
+        firefly_api_base='https://example/api',
+        ca_cert_path=None,
+        request_timeout=10,
+        unique_column_role='internal_reference',
+        date_column_role='date_transaction',
+        known_roles={},
+        default_json_config={'flow': 'csv'},
+    )
+    accounts: list[dict[str, object]] = [{'id': '1', 'attributes': {'name': 'Checking'}}]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    prompt_calls = {'count': 0}
+
+    def fake_prompt(_job: ProcessingJob, _accounts: list[dict[str, object]]) -> str:
+        prompt_calls['count'] += 1
+        return f'id-{prompt_calls["count"]}'
+
+    monkeypatch.setattr(cli, '_prompt_account_id', fake_prompt)
+    result = ProcessingResult(job=dummy_job, account_id=None)
+
+    first = cli._resolve_account_id(result, args, settings)  # noqa: SLF001
+    second = cli._resolve_account_id(result, args, settings)  # noqa: SLF001
+
+    assert prompt_calls['count'] == 2
+    assert first == 'id-1'
+    assert second == 'id-2'
 
 
 def test_main_rejects_conflicting_outputs(

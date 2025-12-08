@@ -75,13 +75,9 @@ def _resolve_account_id(
     if result.account_id:
         return result.account_id
 
-    cached = getattr(args, 'cached_account_id', None)
-    if cached:
-        return cached
-
-    if args.account_id:
-        args.cached_account_id = args.account_id
-        return args.account_id
+    account_flag = getattr(args, 'account_id', None)
+    if account_flag:
+        return str(account_flag)
 
     if args.auto_upload:
         if settings is None:
@@ -90,9 +86,7 @@ def _resolve_account_id(
         if accounts is None:
             accounts = fetch_asset_accounts(settings)
             args.cached_asset_accounts = accounts
-        chosen = _prompt_account_id(result.job, accounts)
-        args.cached_account_id = chosen
-        return chosen
+        return _prompt_account_id(result.job, accounts)
 
     return None
 
