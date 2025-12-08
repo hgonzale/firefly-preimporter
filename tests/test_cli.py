@@ -232,3 +232,38 @@ def test_main_rejects_stdout_with_output(
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     with pytest.raises(ValueError, match='--stdout is incompatible'):
         cli.main([str(tmp_path / 'file.csv'), '--stdout', '--output', 'out.csv'])
+
+
+def test_main_reports_dry_run_upload(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = ProcessingResult(
+        job=dummy_job,
+        transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
+    )
+    firefly_settings = FireflySettings(
+        fidi_import_secret='sec',  # noqa: S106 - test secret
+        personal_access_token='tok',  # noqa: S106 - test token
+        fidi_autoupload_url='https://example/fidi',
+        firefly_api_base='https://example/api',
+        ca_cert_path=None,
+        request_timeout=10,
+        unique_column_role='internal_reference',
+        date_column_role='date_transaction',
+        known_roles={},
+        default_json_config={'flow': 'csv'},
+    )
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    monkeypatch.setattr(cli, '_process_job', lambda _job: result)
+    monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
+    accounts = [{'id': '1', 'attributes': {'name': 'Checking'}}]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    monkeypatch.setattr(cli, '_prompt_account_id', lambda _job, _accounts: '1')
+    monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'payload')  # noqa: ARG005
+
+    exit_code = cli.main([str(dummy_job.source_path), '--auto-upload', '--dry-run'])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert 'Dry-run: skipped uploading' in captured.out

@@ -109,7 +109,9 @@ def _write_and_upload(result: ProcessingResult, args: argparse.Namespace, upload
         csv_payload = write_output(result, output_path=None)
     else:
         csv_payload = write_output(result, output_path=destination)
-    if args.auto_upload and uploader and result.has_transactions():
+    if args.auto_upload and args.dry_run and result.has_transactions():
+        _emit(f'Dry-run: skipped uploading {result.job.source_path.name}.', args)
+    elif args.auto_upload and uploader and result.has_transactions():
         account_id = _resolve_account_id(result, args, uploader.settings)
         json_config = build_json_config(uploader.settings, account_id=account_id)
         response = uploader.upload(csv_payload, json_config)
@@ -141,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         args.auto_upload = True
 
     settings = load_settings(args.config) if args.auto_upload else None
-    uploader = FidiUploader(settings, dry_run=args.dry_run) if settings else None
+    uploader = FidiUploader(settings, dry_run=args.dry_run) if settings and not args.dry_run else None
 
     jobs = gather_jobs(args.targets)
     if args.output and len(jobs) != 1:
