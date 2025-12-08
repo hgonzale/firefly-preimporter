@@ -23,8 +23,8 @@ Key flags:
 
 - `--stdout` only works for a single input target.
 - When no output flags are provided, each file produces `<name>.firefly.csv` next to the original input.
-- `--auto-upload` (optionally paired with `--dry-run`) reads FiDI credentials from the TOML config and either uses the processor-provided account id or prompts unless `--account-id` is supplied.
-- `--quiet`/`--verbose` adjust log chatter for multi-file runs.
+- `-s/--auto-upload` (optionally paired with `-n/--dry-run`) reads FiDI credentials from the TOML config, attempts to reuse the account id embedded in OFX/QFX files, and otherwise fetches the list of asset accounts from Firefly for interactive selection (or you can bypass the prompt with `--account-id`).
+- `-o/--output` targets a single file, while `--output-dir` writes per-job files; `-q/--quiet` and `-v/--verbose` adjust log chatter for multi-file runs.
 
 ## Requirements
 
@@ -35,6 +35,8 @@ After installing uv, run `uv sync` to set up the virtual environment and project
 ## Tox commands
 
 ```bash
-tox -e py311   # run the pytest suite
+tox -e py311   # run the pytest suite with coverage (fails under 85%)
 tox -e lint    # Ruff lint + format checks
+tox -e types   # mypy type checking
+tox -e format  # auto-fix style issues with Ruff
 ```

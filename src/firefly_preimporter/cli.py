@@ -122,16 +122,16 @@ def _write_and_upload(result: ProcessingResult, args: argparse.Namespace, upload
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Firefly Preimporter CLI')
     parser.add_argument('targets', nargs='+', type=Path, help='Input files or directories')
-    parser.add_argument('--config', type=Path, help='Path to configuration TOML')
+    parser.add_argument('-c', '--config', type=Path, help='Path to configuration TOML')
     parser.add_argument('--account-id', help='Default Firefly account id for uploads (prompts if omitted)')
-    parser.add_argument('--output', type=Path, help='Path to write the CSV output')
+    parser.add_argument('-o', '--output', type=Path, help='Path to write the CSV output')
     parser.add_argument('--output-dir', type=Path, help='Directory to write per-job CSV outputs')
-    parser.add_argument('--auto-upload', action='store_true', help='Upload the normalized CSV to FiDI')
-    parser.add_argument('--dry-run', action='store_true', help='Dry-run auto upload (implies --auto-upload)')
+    parser.add_argument('-s', '--auto-upload', action='store_true', help='Upload the normalized CSV to FiDI')
+    parser.add_argument('-n', '--dry-run', action='store_true', help='Dry-run auto upload (implies --auto-upload)')
     parser.add_argument('--stdout', action='store_true', help='Print normalized CSV to stdout')
     verbosity = parser.add_mutually_exclusive_group()
-    verbosity.add_argument('--quiet', action='store_true', help='Suppress informational output')
-    verbosity.add_argument('--verbose', action='store_true', help='Print verbose progress details')
+    verbosity.add_argument('-q', '--quiet', action='store_true', help='Suppress informational output')
+    verbosity.add_argument('-v', '--verbose', action='store_true', help='Print verbose progress details')
     return parser.parse_args(argv)
 
 

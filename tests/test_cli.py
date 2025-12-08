@@ -18,6 +18,15 @@ def test_parse_args_basic() -> None:
     assert not args.auto_upload
 
 
+def test_parse_args_short_flags(tmp_path: Path) -> None:
+    output = tmp_path / 'out.csv'
+    args = cli.parse_args(['-s', '-n', '-o', str(output), '-q', 'foo.csv'])
+    assert args.auto_upload
+    assert args.dry_run
+    assert args.output == output
+    assert args.quiet
+
+
 @pytest.fixture
 def dummy_job(tmp_path: Path) -> ProcessingJob:
     file_path = tmp_path / 'input.csv'
