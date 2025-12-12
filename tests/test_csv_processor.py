@@ -43,6 +43,20 @@ def test_process_csv_missing_header(tmp_path: Path) -> None:
         process_csv(job)
 
 
+def test_process_csv_accepts_alternate_headers(tmp_path: Path) -> None:
+    file_path = tmp_path / 'alt.csv'
+    file_path.write_text(
+        ('Posted Date,Reference Number,Payee,Address,Amount\n01/01/2024,ABC123,Electric Company,"123 Street",-45.67'),
+        encoding='utf-8',
+    )
+    job = ProcessingJob(source_path=file_path, source_format=SourceFormat.CSV)
+    result = process_csv(job)
+    assert result.has_transactions()
+    txn = result.transactions[0]
+    assert txn.description == 'Electric Company'
+    assert txn.amount == '-45.67'
+
+
 def test_normalize_date_invalid() -> None:
     with pytest.raises(ValueError, match='unrecognized date'):
         normalize_date('31/31/2024')

@@ -13,6 +13,14 @@ from firefly_preimporter.models import ProcessingJob, ProcessingResult, Transact
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from collections.abc import Iterable, Iterator
 REQUIRED_COLUMNS = ('date', 'description', 'amount')
+COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
+    'date': ('date', 'posted date', 'posted_date', 'posteddate'),
+    'description': ('description', 'payee', 'memo'),
+    'amount': ('amount', 'transaction amount'),
+}
+OPTIONAL_COLUMNS: dict[str, tuple[str, ...]] = {
+    'transaction_id': ('transaction id', 'transaction_id', 'reference number', 'reference', 'reference_number'),
+}
 DATE_FORMATS = ('%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d')
 
 
@@ -49,22 +57,31 @@ def generate_transaction_id(date: str, description: str, amount: str) -> str:
     return digest[:15]
 
 
-def detect_required_columns(header_row: list[str]) -> dict[str, int] | None:
-    """Return mapping of required column name to index, or ``None`` if missing."""
+def detect_required_columns(header_row: list[str]) -> tuple[dict[str, int], dict[str, int]] | None:
+    """Return mappings for required and optional columns or ``None`` if required columns are missing."""
 
     normalized = [cell.strip().lower() for cell in header_row]
-    indexes: dict[str, int] = {}
+    required_indexes: dict[str, int] = {}
     for column in REQUIRED_COLUMNS:
-        if column not in normalized:
+        aliases = COLUMN_ALIASES.get(column, (column,))
+        match_index = next((normalized.index(alias) for alias in aliases if alias in normalized), None)
+        if match_index is None:
             return None
-        indexes[column] = normalized.index(column)
-    return indexes
+        required_indexes[column] = match_index
+
+    optional_indexes: dict[str, int] = {}
+    for column, aliases in OPTIONAL_COLUMNS.items():
+        match_index = next((normalized.index(alias) for alias in aliases if alias in normalized), None)
+        if match_index is not None:
+            optional_indexes[column] = match_index
+    return required_indexes, optional_indexes
 
 
 def iter_transactions(rows: Iterable[list[str]]) -> Iterator[Transaction]:
     """Yield normalized ``Transaction`` entries from CSV rows."""
 
     column_map: dict[str, int] | None = None
+    optional_map: dict[str, int] = {}
     for row in rows:
         if not row or all(not cell.strip() for cell in row):
             continue
@@ -72,9 +89,10 @@ def iter_transactions(rows: Iterable[list[str]]) -> Iterator[Transaction]:
             continue
 
         if column_map is None:
-            column_map = detect_required_columns(row)
-            if column_map is None:
+            detection = detect_required_columns(row)
+            if detection is None:
                 continue
+            column_map, optional_map = detection
             continue
 
         date_raw = row[column_map['date']].strip()
@@ -89,8 +107,14 @@ def iter_transactions(rows: Iterable[list[str]]) -> Iterator[Transaction]:
         except ValueError:
             continue
 
+        transaction_id = None
+        if 'transaction_id' in optional_map:
+            transaction_id = row[optional_map['transaction_id']].strip() or None
+
         yield Transaction(
-            transaction_id=generate_transaction_id(normalized_date, description, normalized_amount),
+            transaction_id=transaction_id
+            if transaction_id
+            else generate_transaction_id(normalized_date, description, normalized_amount),
             date=normalized_date,
             description=description,
             amount=normalized_amount,

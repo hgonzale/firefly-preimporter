@@ -21,10 +21,19 @@ uv run firefly-preimporter statements/ --output-dir normalized
 
 Key flags:
 
-- `--stdout` only works for a single input target.
+- `--stdout` only works for a single input target (and when combined with `-n/--dry-run` it prints the JSON config preview to stderr alongside the CSV).
 - When no output flags are provided, each file produces `<name>.firefly.csv` next to the original input.
-- `-s/--auto-upload` (optionally paired with `-n/--dry-run`) reads FiDI credentials from the TOML config, attempts to reuse the account id embedded in OFX/QFX files, and otherwise fetches the list of asset accounts from Firefly for per-file interactive selection (or you can bypass the prompt with `--account-id`).
+- `-s/--auto-upload` (optionally paired with `-n/--dry-run`) reads FiDI credentials from the TOML config, attempts to reuse the account id embedded in OFX/QFX files, and otherwise fetches the list of asset accounts from Firefly for per-file interactive selection (or you can bypass the prompt with `--account-id`). While selecting you can type `p` to preview the first three transactions or `s` to skip the file entirely.
 - `-o/--output` targets a single file, while `--output-dir` writes per-job files; `-q/--quiet` and `-v/--verbose` adjust log chatter for multi-file runs.
+- `-V/--version` prints the installed version and exits.
+
+## Installation
+
+Use the bundled script to install or refresh the uv-managed CLI in `~/.local/bin` (it safely ignores any active virtual environment):
+
+```bash
+./install.sh
+```
 
 ## Requirements
 

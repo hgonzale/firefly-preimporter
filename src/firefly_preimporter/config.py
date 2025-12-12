@@ -17,11 +17,16 @@ DEFAULT_JSON_CONFIG: dict[str, Any] = {
     'headers': True,
     'rules': True,
     'skip_form': True,
+    'add_import_tag': True,
     'duplicate_detection_method': 'cell',
+    'ignore_duplicate_lines': True,
+    'ignore_duplicate_transactions': True,
     'unique_column_type': 'external-id',
     'unique_column_index': 0,
-    'add_import_tag': True,
-    'flow': 'csv',
+    'default_account': 0,
+    'flow': 'file',
+    'conversion': False,
+    'mapping': [],
     'version': 3,
 }
 """Baseline FiDI JSON configuration that can be overridden via TOML."""

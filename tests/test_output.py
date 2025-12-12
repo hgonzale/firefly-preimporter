@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -21,7 +22,7 @@ def _settings() -> FireflySettings:
         unique_column_role='internal_reference',
         date_column_role='date_transaction',
         known_roles={'dtposted': 'date_transaction'},
-        default_json_config={'flow': 'csv'},
+        default_json_config={'flow': 'file'},
     )
 
 
@@ -38,11 +39,42 @@ def test_build_csv_payload() -> None:
 def test_build_json_config_includes_account() -> None:
     settings = _settings()
     config = build_json_config(settings, account_id='42')
-    assert config['default_account'] == '42'
-    assert config['flow'] == 'csv'
-    roles = config['roles']
+    assert config['default_account'] == 42
+    assert config['flow'] == 'file'
+    roles = cast('list[str]', config['roles'])
     assert isinstance(roles, list)
     assert config['do_mapping'] == [False] * len(roles)
+    assert config['mapping'] == {}
+
+
+def test_build_json_config_fidi_required_fields() -> None:
+    settings = _settings()
+    config = build_json_config(settings, account_id=None)
+
+    required_keys = {
+        'default_account',
+        'date',
+        'delimiter',
+        'headers',
+        'rules',
+        'skip_form',
+        'duplicate_detection_method',
+        'ignore_duplicate_lines',
+        'ignore_duplicate_transactions',
+        'unique_column_type',
+        'unique_column_index',
+        'add_import_tag',
+        'flow',
+        'version',
+        'roles',
+        'mapping',
+        'do_mapping',
+        'conversion',
+    }
+
+    assert required_keys.issubset(config.keys())
+    mapping = config['mapping']
+    assert isinstance(mapping, dict)
 
 
 def test_write_output_writes_file(tmp_path: Path) -> None:

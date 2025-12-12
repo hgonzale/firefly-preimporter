@@ -25,7 +25,7 @@ def _settings() -> FireflySettings:
 
 def test_uploader_dry_run() -> None:
     uploader = FidiUploader(_settings(), dry_run=True)
-    response = uploader.upload('csv', {'flow': 'csv'})
+    response = uploader.upload('csv', {'flow': 'file'})
     assert isinstance(response, requests.Response)
     assert response.status_code == 200
 
@@ -37,7 +37,7 @@ def test_uploader_posts_payload() -> None:
     response.raise_for_status.return_value = None
 
     uploader = FidiUploader(_settings(), session=session)
-    result = uploader.upload('csv-data', {'flow': 'csv'})
+    result = uploader.upload('csv-data', {'flow': 'file'})
 
     session.post.assert_called_once()
     kwargs = session.post.call_args.kwargs
