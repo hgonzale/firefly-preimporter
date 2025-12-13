@@ -4,7 +4,7 @@ This repository contains the Firefly preimporter toolkit. The project is managed
 
 ## Purpose
 
-Firefly Preimporter is a transaction statement preprocessor: it ingests downloads from financial institutions (such as CSV or OFX statements), normalizes the data, and produces files compatible with the Firefly III Data Importer (FiDI). Every dataset we emit for FiDI includes these columns: account ID, transaction ID, date, description, and amount.
+Firefly Preimporter is a transaction statement preprocessor: it ingests downloads from financial institutions (such as CSV or OFX statements), normalizes the data, and produces files compatible with the [Firefly III](https://github.com/firefly-iii/firefly-iii) Data Importer (FiDI). Every dataset we emit for FiDI includes these columns: account ID, transaction ID, date, description, and amount.
 
 Output is provided in two forms:
 
