@@ -4,7 +4,7 @@
 
 - `src/firefly_preimporter/` contains the CLI (`cli.py`), processors, config helpers, Firefly/FiDI clients, and stubs (`stubs/`) for third-party packages. Keep new runtime modules under `src/firefly_preimporter/` with docstrings suitable for autodoc.
 - `tests/` mirrors the source layout; add new unit tests beside the module they cover (e.g., `tests/test_firefly_api.py`).
-- Tooling files live at the repo root (`pyproject.toml`, `tox.ini`, `install.sh`, `README.md`). User-specific notes belong in `dev-notes.md` (ignored in git).
+- Tooling files live at the repo root (`pyproject.toml`, `tox.ini`, `install.sh`, `README.md`).
 
 ## Build, Test, and Development Commands
 
@@ -25,12 +25,13 @@
 
 - Framework: `pytest` with `pytest-cov`. Tests live in `tests/` and should be named `test_<module>.py`.
 - Assertions should be precise; mock network calls (FiDI/Firefly) using `unittest.mock`.
-- Before opening a PR, run `tox -e lint`, `tox -e types`, and either `tox -e py311` or targeted `uv run pytest tests/<file>.py`.
+- For every task, execute the full tox pipeline (`tox -e lint`, `tox -e format`, `tox -e types`, `tox -e py311`). Use targeted `uv run pytest tests/<file>.py` only for quick iteration, but finish by re-running tox.
 
 ## Commit & Pull Request Guidelines
 
 - Keep commits scoped and written in imperative mood (e.g., “Add Firefly uploader”). Reference issue IDs when relevant.
 - PRs should describe the change, note any new configuration knobs, and list verification commands (lint, types, tests). Include screenshots or log snippets if the change affects CLI output or user workflows.
+- If the change modifies user-facing behavior, tooling, or workflows, append a concise entry to `CHANGELOG.md` under the current unreleased section (match whatever version is being prepared in `pyproject.toml`).
 
 ## Configuration & Security Tips
 
