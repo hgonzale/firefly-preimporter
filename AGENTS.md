@@ -10,6 +10,8 @@
 
 - `uv sync` — install/update dependencies in `.venv`.
 - `uv run firefly-preimporter ...` — execute the CLI using the project environment.
+- Activate the repo-managed environment with `source .venv/bin/activate` before running local commands (tox, pytest, etc.); do not create ad-hoc venvs.
+- Never call `pip install` directly; declare dependencies in `pyproject.toml` and let `uv sync`/`uv pip` manage installs.
 - `tox -e lint` — run Ruff linting/format checks.
 - `tox -e format` — auto-format via Ruff (use before committing style fixes).
 - `tox -e types` — Pyright type checking (Firefly stubs + `py.typed` must stay consistent).
