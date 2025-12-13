@@ -1,4 +1,5 @@
 import logging
+import os
 from argparse import Namespace
 from io import StringIO
 from pathlib import Path
@@ -18,15 +19,15 @@ TOKEN_PLACEHOLDER = 'tok' + 'en'
 def test_parse_args_basic() -> None:
     args = cli.parse_args(['foo.csv'])
     assert args.targets == [Path('foo.csv')]
-    assert not args.auto_upload
+    assert args.upload is None
 
 
 def test_parse_args_short_flags(tmp_path: Path) -> None:
     output = tmp_path / 'out.csv'
-    args = cli.parse_args(['-s', '-n', '-o', str(output), '-q', 'foo.csv'])
-    assert args.auto_upload
+    args = cli.parse_args(['-u', '-n', '-o', str(output), '-q', 'foo.csv'])
+    assert args.upload == 'fidi'
     assert args.dry_run
-    assert args.output == output
+    assert Path(args.output) == output
     assert args.quiet
 
 
@@ -88,7 +89,7 @@ def test_main_respects_output_dir(
         return 'payload'
 
     monkeypatch.setattr(cli, 'write_output', fake_write_output)
-    exit_code = cli.main([str(dummy_job.source_path), '--output-dir', str(output_dir)])
+    exit_code = cli.main([str(dummy_job.source_path), '--output', f'{output_dir}{os.sep}'])
     assert exit_code == 0
     assert recorded['path'] == output_dir / f'{dummy_job.source_path.stem}.firefly.csv'
 
@@ -122,6 +123,18 @@ def test_process_job_unknown_format(tmp_path: Path) -> None:
         cli._process_job(job)  # noqa: SLF001
 
 
+def test_main_requires_upload_for_dry_run(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
+    result = ProcessingResult(
+        job=dummy_job,
+        transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
+    )
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    monkeypatch.setattr(cli, '_process_job', lambda _job: result)
+
+    with pytest.raises(ValueError, match='--dry-run requires --upload'):
+        cli.main([str(dummy_job.source_path), '--dry-run'])
+
+
 def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
     result = ProcessingResult(
         job=dummy_job,
@@ -138,6 +151,7 @@ def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: Pr
         date_column_role='date_transaction',
         known_roles={},
         default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
     )
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
@@ -176,7 +190,7 @@ def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: Pr
 
     monkeypatch.setattr(cli, 'build_json_config', fake_build_json_config)
 
-    exit_code = cli.main([str(dummy_job.source_path), '--auto-upload'])
+    exit_code = cli.main([str(dummy_job.source_path), '-u'])
     assert exit_code == 0
     assert captured['account_id'] == '9001'
     assert fetch_calls['count'] == 1
@@ -225,21 +239,24 @@ def test_prompt_account_id_skip_command(monkeypatch: pytest.MonkeyPatch, dummy_j
 
 
 def test_resolve_account_id_prefers_result(dummy_job: ProcessingJob) -> None:
-    args = Namespace(auto_upload=False)
+    args = Namespace(upload=None)
     result = ProcessingResult(job=dummy_job, account_id='777')
     resolved = cli._resolve_account_id(result, args, None)  # noqa: SLF001
     assert resolved == '777'
 
 
 def test_resolve_account_id_uses_flag(dummy_job: ProcessingJob) -> None:
-    args = Namespace(auto_upload=False, account_id='444')
+    args = Namespace(upload=None, account_id='444')
     result = ProcessingResult(job=dummy_job, account_id=None)
     resolved = cli._resolve_account_id(result, args, None)  # noqa: SLF001
     assert resolved == '444'
 
 
-def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
-    args = Namespace(auto_upload=True)
+def test_resolve_account_id_flag_matches_account_number(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+) -> None:
+    args = Namespace(upload='fidi', account_id='OFX-100')
     settings = FireflySettings(
         fidi_import_secret=SECRET_PLACEHOLDER,
         personal_access_token=TOKEN_PLACEHOLDER,
@@ -251,6 +268,69 @@ def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPat
         date_column_role='date_transaction',
         known_roles={},
         default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
+    )
+    accounts: list[dict[str, object]] = [{'id': '77', 'attributes': {'name': 'Card', 'account_number': 'OFX-100'}}]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    result = ProcessingResult(job=dummy_job, account_id=None)
+    resolved = cli._resolve_account_id(result, args, settings)  # noqa: SLF001
+    assert resolved == '77'
+
+
+def test_resolve_account_id_flag_returns_string_without_settings(dummy_job: ProcessingJob) -> None:
+    args = Namespace(upload=None, account_id='OFX-200')
+    result = ProcessingResult(job=dummy_job, account_id=None)
+    resolved = cli._resolve_account_id(result, args, None)  # noqa: SLF001
+    assert resolved == 'OFX-200'
+
+
+def test_resolve_account_id_skips_lookup_when_not_uploading(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+) -> None:
+    args = Namespace(upload=None)
+    settings = FireflySettings(
+        fidi_import_secret=SECRET_PLACEHOLDER,
+        personal_access_token=TOKEN_PLACEHOLDER,
+        fidi_autoupload_url='https://example/fidi',
+        firefly_api_base='https://example/api',
+        ca_cert_path=None,
+        request_timeout=10,
+        unique_column_role='internal_reference',
+        date_column_role='date_transaction',
+        known_roles={},
+        default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
+    )
+
+    def fail_fetch(_settings: FireflySettings) -> list[dict[str, object]]:  # pragma: no cover - should not run
+        raise AssertionError('fetch_asset_accounts should not be called')
+
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', fail_fetch)
+    result = ProcessingResult(job=dummy_job, account_id='OFX-LOOKUP')
+    resolved = cli._resolve_account_id(  # noqa: SLF001
+        result,
+        args,
+        settings,
+        require_resolution=False,
+    )
+    assert resolved == 'OFX-LOOKUP'
+
+
+def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
+    args = Namespace(upload='fidi')
+    settings = FireflySettings(
+        fidi_import_secret=SECRET_PLACEHOLDER,
+        personal_access_token=TOKEN_PLACEHOLDER,
+        fidi_autoupload_url='https://example/fidi',
+        firefly_api_base='https://example/api',
+        ca_cert_path=None,
+        request_timeout=10,
+        unique_column_role='internal_reference',
+        date_column_role='date_transaction',
+        known_roles={},
+        default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
     )
     accounts: list[dict[str, object]] = [{'id': '55', 'attributes': {'name': 'Match', 'account_number': 'OFX-999'}}]
     monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
@@ -260,7 +340,7 @@ def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPat
 
 
 def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
-    args = Namespace(auto_upload=True)
+    args = Namespace(upload='fidi')
     settings = FireflySettings(
         fidi_import_secret=SECRET_PLACEHOLDER,
         personal_access_token=TOKEN_PLACEHOLDER,
@@ -272,6 +352,7 @@ def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, du
         date_column_role='date_transaction',
         known_roles={},
         default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
     )
     accounts: list[dict[str, object]] = [{'id': '1', 'attributes': {'name': 'Checking'}}]
     monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
@@ -290,16 +371,6 @@ def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, du
     assert prompt_calls['count'] == 2
     assert first == 'id-1'
     assert second == 'id-2'
-
-
-def test_main_rejects_conflicting_outputs(
-    monkeypatch: pytest.MonkeyPatch,
-    dummy_job: ProcessingJob,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
-    with pytest.raises(ValueError, match='Use either --output or --output-dir'):
-        cli.main([str(tmp_path / 'file.csv'), '--output', 'out.csv', '--output-dir', str(tmp_path)])
 
 
 def test_main_rejects_stdout_with_output(
@@ -331,6 +402,7 @@ def test_main_reports_dry_run_upload(
         date_column_role='date_transaction',
         known_roles={},
         default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
     )
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
@@ -351,7 +423,7 @@ def test_main_reports_dry_run_upload(
     handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
     cli.LOGGER.addHandler(handler)
     try:
-        exit_code = cli.main([str(dummy_job.source_path), '--auto-upload', '--dry-run'])
+        exit_code = cli.main([str(dummy_job.source_path), '-u', '--dry-run'])
     finally:
         cli.LOGGER.removeHandler(handler)
     assert exit_code == 0
@@ -359,7 +431,7 @@ def test_main_reports_dry_run_upload(
     assert fetch_calls['count'] == 1
 
 
-def test_auto_upload_logs_response_body_when_verbose(
+def test_fidi_upload_logs_response_body_when_verbose(
     monkeypatch: pytest.MonkeyPatch,
     dummy_job: ProcessingJob,
 ) -> None:
@@ -378,11 +450,12 @@ def test_auto_upload_logs_response_body_when_verbose(
         date_column_role='date_transaction',
         known_roles={},
         default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
     )
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: settings)
-    monkeypatch.setattr(cli, '_resolve_account_id', lambda *_args: '123')
+    monkeypatch.setattr(cli, '_resolve_account_id', lambda *_args, **_kwargs: '123')
     monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'csv-data')  # noqa: ARG005
 
     class DummyUploader:
@@ -400,7 +473,7 @@ def test_auto_upload_logs_response_body_when_verbose(
     handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
     cli.LOGGER.addHandler(handler)
     try:
-        exit_code = cli.main([str(dummy_job.source_path), '--auto-upload', '--verbose'])
+        exit_code = cli.main([str(dummy_job.source_path), '-u', '--verbose'])
     finally:
         cli.LOGGER.removeHandler(handler)
     assert exit_code == 0
@@ -431,20 +504,164 @@ def test_stdout_dry_run_prints_json(
         date_column_role='date_transaction',
         known_roles={},
         default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
     )
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
-    monkeypatch.setattr(cli, '_resolve_account_id', lambda *_args: '123')
+    monkeypatch.setattr(cli, '_resolve_account_id', lambda *_args, **_kwargs: '123')
     monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'csv-data')  # noqa: ARG005
 
     exit_code = cli.main(
-        [str(dummy_job.source_path), '--auto-upload', '--dry-run', '--stdout'],
+        [str(dummy_job.source_path), '-u', '--dry-run', '--stdout'],
     )
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured.out == 'csv-data'
     assert '"default_account": 123' in captured.err
+
+
+def test_firefly_upload_respects_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    tmp_path: Path,
+) -> None:
+    result = ProcessingResult(
+        job=dummy_job,
+        transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
+    )
+    firefly_settings = FireflySettings(
+        fidi_import_secret=SECRET_PLACEHOLDER,
+        personal_access_token=TOKEN_PLACEHOLDER,
+        fidi_autoupload_url='https://example/fidi',
+        firefly_api_base='https://example/api',
+        ca_cert_path=None,
+        request_timeout=10,
+        unique_column_role='internal_reference',
+        date_column_role='date_transaction',
+        known_roles={},
+        default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
+    )
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    monkeypatch.setattr(cli, '_process_job', lambda _job: result)
+    monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
+    monkeypatch.setattr(cli, '_resolve_account_id', lambda *_args, **_kwargs: '999')
+    monkeypatch.setattr(
+        cli,
+        'fetch_asset_accounts',
+        lambda _settings: [{'id': '999', 'attributes': {'name': 'Checking', 'currency_code': 'USD'}}],
+    )
+    monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'csv-data')  # noqa: ARG005
+    payload_path = tmp_path / 'firefly.json'
+
+    exit_code = cli.main(
+        [str(dummy_job.source_path), '--upload', 'firefly', '--dry-run', '--output', str(payload_path)],
+    )
+    assert exit_code == 0
+    data = payload_path.read_text(encoding='utf-8')
+    assert '"external_id": "1"' in data
+    assert '"error_if_duplicate_hash": true' in data
+
+
+def test_firefly_upload_posts_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    tmp_path: Path,
+) -> None:
+    result = ProcessingResult(
+        job=dummy_job,
+        transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
+    )
+    firefly_settings = FireflySettings(
+        fidi_import_secret=SECRET_PLACEHOLDER,
+        personal_access_token=TOKEN_PLACEHOLDER,
+        fidi_autoupload_url='https://example/fidi',
+        firefly_api_base='https://example/api',
+        ca_cert_path=None,
+        request_timeout=10,
+        unique_column_role='internal_reference',
+        date_column_role='date_transaction',
+        known_roles={},
+        default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
+    )
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    monkeypatch.setattr(cli, '_process_job', lambda _job: result)
+    monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
+    monkeypatch.setattr(cli, '_resolve_account_id', lambda *_args, **_kwargs: '999')
+    monkeypatch.setattr(
+        cli,
+        'fetch_asset_accounts',
+        lambda _settings: [{'id': '999', 'attributes': {'name': 'Checking', 'currency_code': 'USD'}}],
+    )
+    monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'csv-data')  # noqa: ARG005
+    payload_path = tmp_path / 'firefly.json'
+    captured_payload: dict[str, object] | None = None
+
+    def fake_upload_transactions(_settings: FireflySettings, payload: dict[str, object]) -> SimpleNamespace:
+        nonlocal captured_payload
+        captured_payload = payload
+        return SimpleNamespace(status_code=201, text='{"data":"ok"}')
+
+    monkeypatch.setattr(cli, 'upload_transactions', fake_upload_transactions)
+
+    exit_code = cli.main([str(dummy_job.source_path), '--upload', 'firefly', '--output', str(payload_path)])
+    assert exit_code == 0
+    assert captured_payload is not None
+    assert captured_payload['transactions'][0]['external_id'] == '1'
+    assert payload_path.exists()
+
+
+def test_firefly_upload_from_config_default(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    tmp_path: Path,
+) -> None:
+    result = ProcessingResult(
+        job=dummy_job,
+        transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
+    )
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text('dummy = true\n', encoding='utf-8')
+    firefly_settings = FireflySettings(
+        fidi_import_secret=SECRET_PLACEHOLDER,
+        personal_access_token=TOKEN_PLACEHOLDER,
+        fidi_autoupload_url='https://example/fidi',
+        firefly_api_base='https://example/api',
+        ca_cert_path=None,
+        request_timeout=10,
+        unique_column_role='internal_reference',
+        date_column_role='date_transaction',
+        known_roles={},
+        default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
+        default_upload='firefly',
+    )
+    monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
+    monkeypatch.setattr(cli, '_process_job', lambda _job: result)
+    monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
+    monkeypatch.setattr(cli, '_resolve_account_id', lambda *_args, **_kwargs: '999')
+    monkeypatch.setattr(
+        cli,
+        'fetch_asset_accounts',
+        lambda _settings: [{'id': '999', 'attributes': {'name': 'Checking', 'currency_code': 'USD'}}],
+    )
+    monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'csv-data')  # noqa: ARG005
+    captured_payload: dict[str, object] | None = None
+
+    def fake_upload_transactions(_settings: FireflySettings, payload: dict[str, object]) -> SimpleNamespace:
+        nonlocal captured_payload
+        captured_payload = payload
+        return SimpleNamespace(status_code=201, text='{"data":"ok"}')
+
+    monkeypatch.setattr(cli, 'upload_transactions', fake_upload_transactions)
+
+    exit_code = cli.main(
+        ['--config', str(config_file), '--output', str(tmp_path / 'payload.json'), str(dummy_job.source_path)],
+    )
+    assert exit_code == 0
+    assert captured_payload is not None
 
 
 def test_main_logs_error_and_continues(
@@ -501,6 +718,7 @@ def test_main_handles_user_skip(
         date_column_role='date_transaction',
         known_roles={},
         default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
     )
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
@@ -519,7 +737,7 @@ def test_main_handles_user_skip(
     handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
     cli.LOGGER.addHandler(handler)
     try:
-        exit_code = cli.main([str(dummy_job.source_path), '--auto-upload'])
+        exit_code = cli.main([str(dummy_job.source_path), '-u'])
     finally:
         cli.LOGGER.removeHandler(handler)
     assert exit_code == 0

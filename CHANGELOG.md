@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2025-12-12
+
+### Added
+
+- Firefly uploads: when `-u firefly` is specified, the CLI builds a Firefly III payload (withdrawal/deposit inference, batch tagging, duplicate hash guard) and POSTs it directly to `/transactions` (unless `-n` is provided).
+- New `firefly_payload` helper plus accompanying tests ensure every normalized transaction can be converted into a Firefly-ready entry with consistent tagging and metadata.
+
+### Changed
+
+- Upload handling has been unified under `-u/--upload [fidi|firefly]` (FiDI by default); `-n/--dry-run` now only works with `-u` and skips the final POST, while `-o/--output` doubles as both the Firefly payload destination (`-u firefly`) and the per-file directory selector.
+- `--output-dir` has been removed; pass a directory to `-o/--output` to fan out per-input CSVs, or a file path for single-job CSV/payload output.
+- `--account-id` accepts either a Firefly numeric ID or a bank-provided account number; non-numeric values are matched to Firefly asset accounts the same way OFX-derived identifiers are resolved.
+- Firefly uploads inherit FiDI’s duplicate-hash protection by default (`firefly_error_on_duplicate = true`), keeping both paths consistent.
+- The `-c` shorthand for `--config` has been dropped to avoid conflicting with other short options; use the long flag (which still documents the default config path) when pointing at custom TOML files.
+
+### Fixed
+
+- FiDI upload and Firefly JSON export now reuse a shared cached snapshot of Firefly asset accounts (ids plus currencies) so OFX matching stays consistent and we avoid repeated API calls mid-run.
+- Dry-run stdout mode once again prints the JSON preview alongside the CSV so users inspecting batches don’t miss half of the output.
+- Runs that only normalize data (no `-u/--upload`) no longer try to query the Firefly API for account lookups, so having an unreachable Firefly host no longer crashes CSV-only workflows.
+
 ## [0.1.3] - 2025-12-07
 
 ### Changed

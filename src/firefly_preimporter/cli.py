@@ -5,23 +5,23 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from firefly_preimporter import __version__ as pkg_version
-from firefly_preimporter.config import FireflySettings, load_settings
+from firefly_preimporter.config import DEFAULT_CONFIG_PATH, FireflySettings, load_settings
 from firefly_preimporter.detect import gather_jobs
-from firefly_preimporter.firefly_api import fetch_asset_accounts, format_account_label
+from firefly_preimporter.firefly_api import fetch_asset_accounts, format_account_label, upload_transactions
+from firefly_preimporter.firefly_payload import FireflyPayloadBuilder
 from firefly_preimporter.models import ProcessingJob, ProcessingResult, SourceFormat, Transaction
 from firefly_preimporter.output import build_csv_payload, build_json_config, write_output
 from firefly_preimporter.processors.csv_processor import process_csv as process_csv_file
 from firefly_preimporter.processors.ofx_processor import process_ofx as process_ofx_file
 from firefly_preimporter.uploader import FidiUploader
-from firefly_preimporter.firefly_payload import FireflyPayloadBuilder
-
-from datetime import datetime
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from collections.abc import Callable
@@ -53,6 +53,18 @@ def _get_asset_accounts(args: argparse.Namespace, settings: FireflySettings) -> 
     return accounts
 
 
+def _get_account_currency_code(account_id: str, accounts: list[dict[str, object]]) -> str:
+    for account in accounts:
+        if str(account.get('id')) == str(account_id):
+            attributes = account.get('attributes', {})
+            if isinstance(attributes, Mapping):
+                currency = attributes.get('currency_code') or attributes.get('native_currency_code')
+                if currency:
+                    return str(currency)
+            break
+    raise ValueError(f'Currency for account {account_id} not found')
+
+
 def _match_account_number(account_number: str, accounts: list[dict[str, object]]) -> str | None:
     candidate = account_number.strip()
     if not candidate:
@@ -64,6 +76,10 @@ def _match_account_number(account_number: str, accounts: list[dict[str, object]]
             if acct_num and acct_num == candidate:
                 return str(account.get('id'))
     return None
+
+
+def _generate_batch_tag() -> str:
+    return datetime.now().strftime('preimporter-%Y%m%d-%H%M%S')
 
 
 def _process_job(job: ProcessingJob) -> ProcessingResult:
@@ -155,10 +171,12 @@ def _resolve_account_id(
     result: ProcessingResult,
     args: argparse.Namespace,
     settings: FireflySettings | None,
+    *,
+    require_resolution: bool = True,
 ) -> str | None:
     """Return the best account id candidate for the current job."""
     if result.account_id:
-        if result.account_id.isdigit():
+        if result.account_id.isdigit() or not require_resolution:
             return result.account_id
         if settings is not None:
             accounts = _get_asset_accounts(args, settings)
@@ -168,10 +186,18 @@ def _resolve_account_id(
         return result.account_id
     account_flag = getattr(args, 'account_id', None)
     if account_flag:
-        return str(account_flag)
-    if args.auto_upload:
+        candidate = str(account_flag)
+        if candidate.isdigit() or not require_resolution:
+            return candidate
+        if settings is not None:
+            accounts = _get_asset_accounts(args, settings)
+            matched = _match_account_number(candidate, accounts)
+            if matched:
+                return matched
+        return candidate
+    if require_resolution:
         if settings is None:
-            raise ValueError('Auto-upload requires Firefly settings for account selection')
+            raise ValueError('Upload requires Firefly settings for account selection')
         accounts = _get_asset_accounts(args, settings)
         return _prompt_account_id(result, accounts)
     return None
@@ -182,30 +208,37 @@ def _write_and_upload(
     args: argparse.Namespace,
     uploader: FidiUploader | None,
     settings: FireflySettings | None,
+    account_id: str | None,
+    *,
+    csv_output_path: Path | None,
+    output_dir: Path | None,
+    upload_to_fidi: bool,
+    dry_run: bool,
 ) -> str:
-    destination: Path | None = args.output
-    if args.output_dir and destination is None:
-        destination = Path(args.output_dir) / f'{result.job.source_path.stem}.firefly.csv'
-    elif destination is None and not args.auto_upload:
+    destination: Path | None = csv_output_path
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        destination = output_dir / f'{result.job.source_path.stem}.firefly.csv'
+    elif destination is None and not upload_to_fidi:
         destination = result.job.source_path.with_name(f'{result.job.source_path.stem}.firefly.csv')
-    if destination and not args.auto_upload:
+    if destination and not upload_to_fidi:
         destination.parent.mkdir(parents=True, exist_ok=True)
-    if args.auto_upload:
+    if upload_to_fidi:
         csv_payload = write_output(result, output_path=None)
     else:
         csv_payload = write_output(result, output_path=destination)
-    if args.auto_upload and args.dry_run and result.has_transactions():
-        if settings is None:
-            raise ValueError('Auto-upload requires Firefly settings for account selection')
-        account_id = _resolve_account_id(result, args, settings)
+    if upload_to_fidi and dry_run and result.has_transactions():
+        if settings is None or account_id is None:
+            raise ValueError('FiDI upload requires Firefly settings for account selection')
         json_config = build_json_config(settings, account_id=account_id)
         if args.stdout:
             json_payload = json.dumps(json_config, indent=2, sort_keys=True)
             print('config.json (dry-run preview):', file=sys.stderr)
             print(json_payload, file=sys.stderr)
         _emit(f'Dry-run: skipped uploading {result.job.source_path.name}.', args)
-    elif args.auto_upload and uploader and result.has_transactions():
-        account_id = _resolve_account_id(result, args, uploader.settings)
+    elif upload_to_fidi and uploader and result.has_transactions():
+        if account_id is None:
+            raise ValueError('FiDI upload requires a resolved account id')
         json_config = build_json_config(uploader.settings, account_id=account_id)
         config_preview = json.dumps(json_config, indent=2, sort_keys=True)
         _emit(f'FiDI config payload: {config_preview}', args, verbose_only=True)
@@ -218,20 +251,51 @@ def _write_and_upload(
         if not snippet:
             snippet = '<empty response body>'
         _emit(f'FiDI response body: {snippet}', args, verbose_only=True)
-    elif args.auto_upload and not result.has_transactions():
+    elif upload_to_fidi and not result.has_transactions():
         _emit(f'Skipping upload for {result.job.source_path.name}: no transactions found.', args, verbose_only=True)
     return csv_payload
+
+
+def _resolve_output_targets(
+    output_arg: str | None,
+    jobs: list[ProcessingJob],
+    *,
+    firefly_upload: bool,
+) -> tuple[Path | None, Path | None, Path | None]:
+    if output_arg is None:
+        return (None, None, None)
+    dir_hint = output_arg.endswith(os.sep)
+    output_path = Path(output_arg).expanduser()
+    if firefly_upload:
+        return (None, None, output_path)
+    if len(jobs) == 1:
+        if dir_hint or (output_path.exists() and output_path.is_dir()):
+            return (None, output_path, None)
+        return (output_path, None, None)
+    if output_path.exists() and output_path.is_file():
+        raise ValueError('--output must be a directory when processing multiple inputs')
+    return (None, output_path, None)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Firefly Preimporter CLI')
     parser.add_argument('targets', nargs='+', type=Path, help='Input files or directories')
-    parser.add_argument('-c', '--config', type=Path, help='Path to configuration TOML')
+    parser.add_argument(
+        '--config',
+        type=Path,
+        help=f'Path to configuration TOML (default: {DEFAULT_CONFIG_PATH})',
+    )
     parser.add_argument('--account-id', help='Default Firefly account id for uploads (prompts if omitted)')
-    parser.add_argument('-o', '--output', type=Path, help='Path to write the CSV output')
-    parser.add_argument('--output-dir', type=Path, help='Directory to write per-job CSV outputs')
-    parser.add_argument('-s', '--auto-upload', action='store_true', help='Upload the normalized CSV to FiDI')
-    parser.add_argument('-n', '--dry-run', action='store_true', help='Dry-run auto upload (implies --auto-upload)')
+    parser.add_argument('-o', '--output', type=str, help='File path (single job) or directory (multi-job/per-file).')
+    parser.add_argument(
+        '-u',
+        '--upload',
+        nargs='?',
+        const='fidi',
+        choices=['fidi', 'firefly'],
+        help='Upload normalized data via FiDI (default) or Firefly (specify "firefly").',
+    )
+    parser.add_argument('-n', '--dry-run', action='store_true', help='Dry-run uploads (skip the final POST).')
     parser.add_argument('--stdout', action='store_true', help='Print normalized CSV to stdout')
     parser.add_argument('-V', '--version', action='version', version=f'%(prog)s {pkg_version}')
     verbosity = parser.add_mutually_exclusive_group()
@@ -242,21 +306,58 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.dry_run:
-        args.auto_upload = True
-    settings = load_settings(args.config) if args.auto_upload else None
-    uploader = FidiUploader(settings, dry_run=args.dry_run) if settings and not args.dry_run else None
+    config_arg = args.config
+    config_path = (config_arg or DEFAULT_CONFIG_PATH).expanduser()
+
+    def _load(*, optional: bool) -> FireflySettings | None:
+        target_path = config_arg if config_arg else None
+        try:
+            return load_settings(target_path)
+        except FileNotFoundError:
+            if optional:
+                return None
+            raise
+
+    settings: FireflySettings | None = None
+    if config_arg or args.upload:
+        settings = _load(optional=False)
+    elif config_path.is_file():
+        settings = _load(optional=True)
+
+    upload_mode = args.upload
+    if upload_mode is None and settings and settings.default_upload:
+        upload_mode = settings.default_upload
+    fidi_upload = upload_mode == 'fidi'
+    firefly_upload = upload_mode == 'firefly'
+    firefly_payload_requested = firefly_upload
+    if args.dry_run and upload_mode is None:
+        raise ValueError('--dry-run requires --upload/ -u')
+    if upload_mode and settings is None:
+        settings = _load(optional=False)
+    uploader = FidiUploader(settings, dry_run=args.dry_run) if settings and fidi_upload and not args.dry_run else None
+    payload_builder: FireflyPayloadBuilder | None = None
+    if firefly_payload_requested:
+        if settings is None:
+            raise ValueError('Firefly uploads require Firefly settings for account metadata')
+        payload_builder = FireflyPayloadBuilder(
+            _generate_batch_tag(),
+            error_on_duplicate=settings.firefly_error_on_duplicate,
+        )
+    csv_output_path = args.output if not firefly_upload else None
+    payload_output_path = args.output if firefly_upload else None
     jobs = gather_jobs(args.targets)
-    if args.output and len(jobs) != 1:
-        raise ValueError('--output can only be used when a single job is specified')
-    if args.output and args.output_dir:
-        raise ValueError('Use either --output or --output-dir, not both')
+    csv_output_path, output_dir, payload_output_path = _resolve_output_targets(
+        args.output,
+        jobs,
+        firefly_upload=firefly_upload,
+    )
     if args.stdout and len(jobs) != 1:
         raise ValueError('--stdout can only be used when a single job is specified')
-    if args.stdout and (args.output or args.output_dir):
-        raise ValueError('--stdout is incompatible with --output or --output-dir')
+    if args.stdout and (csv_output_path or output_dir):
+        raise ValueError('--stdout is incompatible with --output')
     combined_transactions: list[Transaction] = []
     stdout_payload: str | None = None
+    require_account_resolution = upload_mode is not None
     for job in jobs:
         try:
             result = _process_job(job)
@@ -268,7 +369,30 @@ def main(argv: list[str] | None = None) -> int:
             _emit(result.summary(), args)
             for warning in result.warnings:
                 _emit(f'Warning: {warning}', args, error=True)
-            payload = _write_and_upload(result, args, uploader, settings)
+            account_id: str | None = None
+            if settings is not None:
+                account_id = _resolve_account_id(
+                    result,
+                    args,
+                    settings,
+                    require_resolution=require_account_resolution,
+                )
+            elif getattr(args, 'account_id', None):
+                account_id = str(args.account_id)
+            if payload_builder and account_id and settings is not None:
+                currency_code = _get_account_currency_code(account_id, _get_asset_accounts(args, settings))
+                payload_builder.add_result(result, account_id=account_id, currency_code=currency_code)
+            payload = _write_and_upload(
+                result,
+                args,
+                uploader,
+                settings,
+                account_id,
+                csv_output_path=csv_output_path,
+                output_dir=output_dir,
+                upload_to_fidi=fidi_upload,
+                dry_run=args.dry_run,
+            )
             if args.stdout:
                 stdout_payload = payload
         except SkipJobError as skip_exc:
@@ -279,6 +403,33 @@ def main(argv: list[str] | None = None) -> int:
             continue
     if args.stdout:
         sys.stdout.write(stdout_payload or build_csv_payload(combined_transactions))
+    if payload_builder and payload_builder.transactions:
+        if settings is None:
+            raise ValueError('Firefly uploads require Firefly settings')
+        firefly_payload = payload_builder.to_dict()
+        if payload_output_path:
+            payload_output_path.parent.mkdir(parents=True, exist_ok=True)
+            payload_output_path.write_text(json.dumps(firefly_payload, indent=2), encoding='utf-8')
+            _emit(f'Wrote Firefly API payload to {payload_output_path}', args)
+        if firefly_upload:
+            if args.dry_run:
+                _emit('Dry-run: skipped Firefly API upload.', args)
+            else:
+                try:
+                    response = upload_transactions(settings, firefly_payload)
+                except Exception as exc:  # noqa: BLE001 - surface HTTP errors
+                    _emit(f'Error uploading payload to Firefly III: {exc}', args, error=True)
+                    return 1
+                _emit(f'Uploaded Firefly API payload: {response.status_code}', args)
+                body_text = getattr(response, 'text', '') or ''
+                snippet = body_text.strip()
+                if len(snippet) > 500:
+                    snippet = f'{snippet[:500]}…'
+                if not snippet:
+                    snippet = '<empty response body>'
+                _emit(f'Firefly API response body: {snippet}', args, verbose_only=True)
+    elif firefly_upload:
+        _emit('No transactions available for Firefly upload.', args, error=True)
     return 0
 
 

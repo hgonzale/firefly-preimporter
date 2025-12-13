@@ -23,6 +23,7 @@ def _settings() -> FireflySettings:
         date_column_role='date_transaction',
         known_roles={'dtposted': 'date_transaction'},
         default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
     )
 
 

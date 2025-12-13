@@ -4,7 +4,7 @@ import pytest
 
 import requests
 from firefly_preimporter.config import FireflySettings
-from firefly_preimporter.firefly_api import fetch_asset_accounts, format_account_label
+from firefly_preimporter.firefly_api import fetch_asset_accounts, format_account_label, upload_transactions
 
 
 def _settings() -> FireflySettings:
@@ -19,6 +19,7 @@ def _settings() -> FireflySettings:
         date_column_role='date_transaction',
         known_roles={},
         default_json_config={},
+        firefly_error_on_duplicate=True,
     )
 
 
@@ -59,3 +60,22 @@ def test_format_account_label_includes_number() -> None:
     label = format_account_label({'id': '99', 'attributes': {'name': 'Checking', 'account_number': '1234'}})
     assert 'Checking' in label
     assert '#1234' in label
+
+
+def test_upload_transactions_posts_payload() -> None:
+    session = Mock(spec=requests.Session)
+    response = Mock(spec=requests.Response)
+    response.raise_for_status.return_value = None
+    response.text = '{"data":[]}'
+    session.post.return_value = response
+    payload = {'transactions': []}
+
+    result = upload_transactions(_settings(), payload, session=session)
+
+    assert result is response
+    session.post.assert_called_once()
+    call = session.post.call_args
+    assert call.args[0].endswith('/transactions')
+    assert call.kwargs['json'] == payload
+    headers = call.kwargs['headers']
+    assert headers['Authorization'].startswith('Bearer ')

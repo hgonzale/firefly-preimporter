@@ -15,6 +15,7 @@ class Session:
         *,
         headers: Mapping[str, str] | None = ...,
         data: Mapping[str, str] | None = ...,
+        json: object | None = ...,
         files: Mapping[str, tuple[str, bytes, str]] | None = ...,
         timeout: float | None = ...,
         verify: bool | str | None = ...,

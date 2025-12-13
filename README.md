@@ -16,16 +16,30 @@ Output is provided in two forms:
 The CLI entry point is `firefly-preimporter`. Example:
 
 ```bash
-uv run firefly-preimporter statements/ --output-dir normalized
+uv run firefly-preimporter statements/ --output normalized/
 ```
 
 Key flags:
 
 - `--stdout` only works for a single input target (and when combined with `-n/--dry-run` it prints the JSON config preview to stderr alongside the CSV).
 - When no output flags are provided, each file produces `<name>.firefly.csv` next to the original input.
-- `-s/--auto-upload` (optionally paired with `-n/--dry-run`) reads FiDI credentials from the TOML config, attempts to reuse the account id embedded in OFX/QFX files, and otherwise fetches the list of asset accounts from Firefly for per-file interactive selection (or you can bypass the prompt with `--account-id`). While selecting you can type `p` to preview the first three transactions or `s` to skip the file entirely.
-- `-o/--output` targets a single file, while `--output-dir` writes per-job files; `-q/--quiet` and `-v/--verbose` adjust log chatter for multi-file runs.
+- `-u/--upload [fidi|firefly]` enables uploads. Use `-u` (or `-u fidi`) for FiDI auto-upload, or `-u firefly` to post directly to the Firefly API. While uploading, the CLI reuses OFX/QFX account numbers when possible; otherwise it fetches the asset list and prompts (you can bypass the prompt with `--account-id`, press `p` to preview, or `s` to skip the file).
+- `-o/--output` accepts either a file path (single job) or a directory (multi-job/per-file; append a trailing `/` or point to an existing folder). During regular runs it writes the normalized CSV(s); when `-u firefly` is active it instead saves the generated Firefly API payload JSON.
 - `-V/--version` prints the installed version and exits.
+- `-n/--dry-run` only works together with `-u/--upload`; it runs the full normalization flow but skips the final FiDI/Firefly POST while still emitting previews/outputs for inspection.
+
+## Configuration
+
+Place a TOML file (default `~/.local/etc/firefly_import.toml`) with your API credentials and knobs such as:
+
+```toml
+personal_access_token = "..."
+fidi_import_secret = "..."
+firefly_error_on_duplicate = true  # keep true to mirror FiDI duplicate-hash checks
+default_upload = "firefly"        # optional: auto-run `-u firefly` (valid values: "fidi", "firefly", or empty)
+```
+
+All other FiDI settings (like the JSON roles/mapping) remain under `[default_json_config]`. When `firefly_error_on_duplicate` stays true (the default) every Firefly upload we generate carries `error_if_duplicate_hash=true`, matching FiDI's duplicate-protection behavior; flip it off only if you explicitly want Firefly III to accept potentially duplicated transactions.
 
 ## Installation
 

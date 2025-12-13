@@ -20,6 +20,7 @@ def _settings() -> FireflySettings:
         date_column_role='date_transaction',
         known_roles={},
         default_json_config={},
+        firefly_error_on_duplicate=True,
     )
 
 

@@ -77,3 +77,30 @@ def format_account_label(account: Mapping[str, Any]) -> str:
     if acct_number:
         label = f'{label} (#{acct_number})'
     return label
+
+
+def upload_transactions(
+    settings: FireflySettings,
+    payload: Mapping[str, Any],
+    *,
+    session: Session | None = None,
+) -> requests.Response:
+    """POST ``payload`` to the Firefly III transactions endpoint."""
+
+    http = session or requests.Session()
+    base_url = settings.firefly_api_base.rstrip('/')
+    url = f'{base_url}/transactions'
+    headers = {
+        'Authorization': f'Bearer {settings.personal_access_token}',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+    }
+    response = http.post(
+        url,
+        headers=headers,
+        json=payload,
+        timeout=settings.request_timeout,
+        verify=_verify_option(settings),
+    )
+    response.raise_for_status()
+    return response

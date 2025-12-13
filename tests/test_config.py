@@ -23,6 +23,8 @@ def test_load_settings_merges_overrides(tmp_path: Path) -> None:
             personal_access_token = "{TOKEN_PLACEHOLDER}"
             fidi_import_secret = "{IMPORT_PLACEHOLDER}"
             request_timeout = 45
+            firefly_error_on_duplicate = false
+            default_upload = "firefly"
 
             [default_json_config]
             flow = "json"
@@ -47,6 +49,8 @@ def test_load_settings_merges_overrides(tmp_path: Path) -> None:
     assert settings.default_json_config['ignore_duplicate_transactions'] is True
     assert settings.default_json_config['conversion'] is False
     assert settings.known_roles['memo'] == 'description'
+    assert settings.firefly_error_on_duplicate is False
+    assert settings.default_upload == 'firefly'
 
 
 def test_load_settings_uses_default_json_when_missing(tmp_path: Path) -> None:
@@ -54,3 +58,5 @@ def test_load_settings_uses_default_json_when_missing(tmp_path: Path) -> None:
     config_file.write_text('personal_access_token = "abc"\n', encoding='utf-8')
     settings = load_settings(config_file)
     assert settings.default_json_config['flow'] == 'file'
+    assert settings.firefly_error_on_duplicate is True
+    assert settings.default_upload is None

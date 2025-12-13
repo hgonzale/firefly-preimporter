@@ -48,6 +48,8 @@ BASE_SETTINGS: dict[str, Any] = {
         'acctid': 'account-number',
     },
     'default_json_config': DEFAULT_JSON_CONFIG,
+    'firefly_error_on_duplicate': True,
+    'default_upload': '',
 }
 """Default settings merged with any local overrides."""
 
@@ -66,6 +68,8 @@ class FireflySettings:
     date_column_role: str
     known_roles: Mapping[str, str]
     default_json_config: Mapping[str, Any]
+    firefly_error_on_duplicate: bool
+    default_upload: str | None = None
 
 
 def _merge_dict(base: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
@@ -87,6 +91,9 @@ def _prepare_settings(raw: Mapping[str, Any]) -> FireflySettings:
     resolved_ca = Path(ca_path).expanduser() if isinstance(ca_path, str) and ca_path else None
     json_cfg = dict(raw.get('default_json_config', {}))
     known_roles = dict(raw.get('known_roles', {}))
+    upload_choice = str(raw.get('default_upload', '') or '').strip().lower()
+    if upload_choice not in {'fidi', 'firefly'}:
+        upload_choice = ''
     return FireflySettings(
         fidi_import_secret=str(raw.get('fidi_import_secret', '')),
         personal_access_token=str(raw.get('personal_access_token', '')),
@@ -98,6 +105,8 @@ def _prepare_settings(raw: Mapping[str, Any]) -> FireflySettings:
         date_column_role=str(raw.get('date_column_role', 'date_transaction')),
         known_roles=known_roles,
         default_json_config=json_cfg,
+        firefly_error_on_duplicate=bool(raw.get('firefly_error_on_duplicate', True)),
+        default_upload=upload_choice or None,
     )
 
 
