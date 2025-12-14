@@ -31,6 +31,17 @@ def test_iter_jobs_directory(tmp_path: Path) -> None:
     assert jobs[1].source_format is SourceFormat.OFX
 
 
+def test_iter_jobs_directory_skips_generated_csv(tmp_path: Path) -> None:
+    generated = tmp_path / 'stmt.firefly.csv'
+    generated.write_text('generated\n', encoding='utf-8')
+    csv_file = tmp_path / 'stmt.csv'
+    csv_file.write_text('header\n', encoding='utf-8')
+
+    jobs = list(iter_jobs(tmp_path))
+    assert len(jobs) == 1
+    assert jobs[0].source_path == csv_file
+
+
 def test_iter_jobs_file_unknown_extension(tmp_path: Path) -> None:
     weird = tmp_path / 'weird.ext'
     weird.write_text('x', encoding='utf-8')

@@ -22,11 +22,12 @@ uv run firefly-preimporter statements/ --output normalized/
 Key flags:
 
 - `--stdout` only works for a single input target (and when combined with `-n/--dry-run` it prints the JSON config preview to stderr alongside the CSV).
-- When no output flags are provided, each file produces `<name>.firefly.csv` next to the original input.
-- `-u/--upload [fidi|firefly]` enables uploads. Use `-u` (or `-u fidi`) for FiDI auto-upload, or `-u firefly` to post directly to the Firefly API. While uploading, the CLI reuses OFX/QFX account numbers when possible; otherwise it fetches the asset list and prompts (you can bypass the prompt with `--account-id`, press `p` to preview, or `s` to skip the file).
+- When no output flags are provided (and `-u` is not used), each file produces `<name>.firefly.csv` next to the original input.
+- `-u/--upload [firefly|fidi]` enables uploads. Use `-u` (or `-u firefly`) to post directly to the Firefly API (default), or pass `-u fidi` for FiDI auto-upload. While uploading, the CLI reuses OFX/QFX account numbers when possible; otherwise it fetches the asset list and prompts (you can bypass the prompt with `--account-id`, press `p` to preview, or `s` to skip the file).
 - `-o/--output` accepts either a file path (single job) or a directory (multi-job/per-file; append a trailing `/` or point to an existing folder). During regular runs it writes the normalized CSV(s); when `-u firefly` is active it instead saves the generated Firefly API payload JSON.
 - `-V/--version` prints the installed version and exits.
 - `-n/--dry-run` only works together with `-u/--upload`; it runs the full normalization flow but skips the final FiDI/Firefly POST while still emitting previews/outputs for inspection.
+- `--upload-duplicates` disables the duplicate-protection guards (FiDI’s `ignore_duplicate_*` flags and Firefly’s `error_if_duplicate_hash`) so reruns can intentionally inject historical data.
 
 ## Configuration
 

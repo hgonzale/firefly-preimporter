@@ -13,33 +13,44 @@ def _result(amount: str) -> ProcessingResult:
 def test_builder_with_withdrawal() -> None:
     builder = FireflyPayloadBuilder(tag='batch-tag')
     builder.add_result(_result('-10.00'), account_id='42', currency_code='USD')
-    payload = builder.to_dict()
-    entry = payload['transactions'][0]
-    assert entry['type'] == 'withdrawal'
-    assert entry['amount'] == '10.00'
-    assert entry['source_id'] == 42
-    assert entry['currency_code'] == 'USD'
-    assert entry['tags'] == ['batch-tag']
-    assert entry['error_if_duplicate_hash'] is True
-    assert entry['internal_reference'] == 'abc'
-    assert payload['group_title'] == 'batch-tag'
-    assert payload['error_if_duplicate_hash'] is True
-    assert payload['apply_rules'] is True
-    assert payload['fire_webhooks'] is True
+    payloads = builder.to_payloads()
+    assert len(payloads) == 1
+    entry = payloads[0].transactions[0]
+    assert entry.type == 'withdrawal'
+    assert entry.amount == '10.00'
+    assert entry.source_id == 42
+    assert entry.destination_name == '(no name)'
+    assert entry.currency_code == 'USD'
+    assert entry.tags == []
+    assert entry.error_if_duplicate_hash is True
+    assert entry.internal_reference == 'abc'
+    assert payloads[0].group_title == 'firefly-preimporter'
+    assert payloads[0].error_if_duplicate_hash is True
+    assert payloads[0].apply_rules is True
+    assert payloads[0].fire_webhooks is True
 
 
 def test_builder_with_deposit() -> None:
     builder = FireflyPayloadBuilder(tag='batch-tag')
     builder.add_result(_result('15.50'), account_id='42', currency_code='USD')
-    entry = builder.to_dict()['transactions'][0]
-    assert entry['type'] == 'deposit'
-    assert entry['destination_id'] == 42
-    assert entry['source_name'] == 'Sample'
-    assert entry['error_if_duplicate_hash'] is True
+    entry = builder.to_payloads()[0].transactions[0]
+    assert entry.type == 'deposit'
+    assert entry.destination_id == 42
+    assert entry.source_name == '(no name)'
+    assert entry.error_if_duplicate_hash is True
 
 
 def test_builder_respects_duplicate_flag() -> None:
     builder = FireflyPayloadBuilder(tag='batch-tag', error_on_duplicate=False)
     builder.add_result(_result('1.00'), account_id='42', currency_code='USD')
-    entry = builder.to_dict()['transactions'][0]
-    assert entry['error_if_duplicate_hash'] is False
+    entry = builder.to_payloads()[0].transactions[0]
+    assert entry.error_if_duplicate_hash is False
+
+
+def test_builder_produces_deterministic_payloads() -> None:
+    first = FireflyPayloadBuilder(tag='batch-tag')
+    first.add_result(_result('3.25'), account_id='42', currency_code='USD')
+    second = FireflyPayloadBuilder(tag='batch-tag')
+    second.add_result(_result('3.25'), account_id='42', currency_code='USD')
+
+    assert first.to_payloads()[0].to_dict() == second.to_payloads()[0].to_dict()

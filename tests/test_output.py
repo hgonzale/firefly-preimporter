@@ -78,6 +78,13 @@ def test_build_json_config_fidi_required_fields() -> None:
     assert isinstance(mapping, dict)
 
 
+def test_build_json_config_allows_duplicates() -> None:
+    settings = _settings()
+    config = build_json_config(settings, account_id='42', allow_duplicates=True)
+    assert config['ignore_duplicate_transactions'] is False
+    assert config['ignore_duplicate_lines'] is False
+
+
 def test_write_output_writes_file(tmp_path: Path) -> None:
     job = ProcessingJob(source_path=tmp_path / 'input.csv', source_format=SourceFormat.CSV)
     result = ProcessingResult(

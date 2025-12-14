@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2025-12-13
+
+### Added
+
+- `--upload-duplicates` flag to bypass the FiDI/Firefly duplicate guards when you intentionally need to re-ingest historical transactions (it flips both the FiDI JSON `ignore_duplicate_*` switches and the Firefly payload `error_if_duplicate_hash` bit).
+
+### Changed
+
+- When `-u` and `-v` are combined the CLI now prints each transaction queued for upload (id, date, amount, and filename) so verbose runs expose exactly what is being sent to FiDI or Firefly.
+- Firefly uploads now POST each normalized row as its own transaction (no mixed-type splits inside one request), so statements containing both withdrawals and deposits import cleanly and match Firefly III’s journal model.
+- Auto-generated upload tags follow the `ff-preimporter YYYY-MM-DD @ HH:MM` format, making it obvious which tool created a batch and when it ran.
+- Firefly payloads now mirror FiDI’s deduplication strategy: batch tags are applied *after* uploads via the Firefly tagging API, leaving the hashed payload identical across reruns so `error_if_duplicate_hash` can block duplicates as intended.
+- Firefly upload logging now reports each transaction’s date + first 20 description characters and whether it finished or failed, instead of generic payload numbers.
+- Running with `-u/--upload` no longer drops `.firefly.csv` snapshots next to the inputs; CSVs are only written when you explicitly run in normalization/export mode.
+- `-u/--upload` defaults to the Firefly API path; pass `-u fidi` if you need the legacy FiDI auto-upload behaviour.
+
+### Fixed
+
+- Mask account numbers in CLI prompts/logs so only the final four characters are displayed, preventing accidental leakage of full bank identifiers during account selection.
+- Destination/source placeholders in Firefly API payloads are no longer populated with the transaction description, preventing bogus counterparty names from appearing in Firefly III.
+- Transactions without a mapped counterparty now leave the `source_name`/`destination_name` fields empty so Firefly renders them as “(no name)” instead of “(cash)”.
+- Explicitly send `(no name)` as the counterparty label for anonymous deposits/withdrawals so Firefly’s UI never falls back to “(cash)”.
+
 ## [0.2.0] - 2025-12-12
 
 ### Added

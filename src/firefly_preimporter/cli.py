@@ -7,24 +7,26 @@ import json
 import logging
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from firefly_preimporter import __version__ as pkg_version
 from firefly_preimporter.config import DEFAULT_CONFIG_PATH, FireflySettings, load_settings
 from firefly_preimporter.detect import gather_jobs
-from firefly_preimporter.firefly_api import fetch_asset_accounts, format_account_label, upload_transactions
+from firefly_preimporter.firefly_api import (
+    FireflyEmitter,
+    fetch_asset_accounts,
+    format_account_label,
+    upload_firefly_payloads,
+    write_firefly_payloads,
+)
 from firefly_preimporter.firefly_payload import FireflyPayloadBuilder
 from firefly_preimporter.models import ProcessingJob, ProcessingResult, SourceFormat, Transaction
 from firefly_preimporter.output import build_csv_payload, build_json_config, write_output
 from firefly_preimporter.processors.csv_processor import process_csv as process_csv_file
 from firefly_preimporter.processors.ofx_processor import process_ofx as process_ofx_file
 from firefly_preimporter.uploader import FidiUploader
-
-if TYPE_CHECKING:  # pragma: no cover - typing helpers only
-    from collections.abc import Callable
 
 
 class SkipJobError(Exception):
@@ -79,7 +81,13 @@ def _match_account_number(account_number: str, accounts: list[dict[str, object]]
 
 
 def _generate_batch_tag() -> str:
-    return datetime.now().strftime('preimporter-%Y%m%d-%H%M%S')
+    return datetime.now().strftime('ff-preimporter %Y-%m-%d @ %H:%M')
+
+
+def _format_firefly_status(split: Mapping[str, object]) -> str:
+    date = str(split.get('date', '?'))
+    description = str(split.get('description', '') or '')[:20]
+    return f'{date} "{description}"'.strip()
 
 
 def _process_job(job: ProcessingJob) -> ProcessingResult:
@@ -98,6 +106,13 @@ def _emit(message: str, args: argparse.Namespace, *, verbose_only: bool = False,
         return
     level = logging.ERROR if error else logging.INFO
     LOGGER.log(level, message)
+
+
+def _make_emitter(args: argparse.Namespace) -> FireflyEmitter:
+    def _emitter(message: str, *, error: bool = False, verbose_only: bool = False) -> None:
+        _emit(message, args, error=error, verbose_only=verbose_only)
+
+    return _emitter
 
 
 def _preview_transactions(result: ProcessingResult, *, limit: int = 3) -> None:
@@ -213,24 +228,25 @@ def _write_and_upload(
     csv_output_path: Path | None,
     output_dir: Path | None,
     upload_to_fidi: bool,
+    firefly_upload: bool,
     dry_run: bool,
 ) -> str:
-    destination: Path | None = csv_output_path
-    if output_dir is not None:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        destination = output_dir / f'{result.job.source_path.stem}.firefly.csv'
-    elif destination is None and not upload_to_fidi:
-        destination = result.job.source_path.with_name(f'{result.job.source_path.stem}.firefly.csv')
-    if destination and not upload_to_fidi:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-    if upload_to_fidi:
-        csv_payload = write_output(result, output_path=None)
-    else:
-        csv_payload = write_output(result, output_path=destination)
+    allow_duplicates = bool(getattr(args, 'upload_duplicates', False))
+    destination: Path | None = None
+    if not (upload_to_fidi or firefly_upload):
+        destination = csv_output_path
+        if output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            destination = output_dir / f'{result.job.source_path.stem}.firefly.csv'
+        elif destination is None:
+            destination = result.job.source_path.with_name(f'{result.job.source_path.stem}.firefly.csv')
+        if destination:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+    csv_payload = write_output(result, output_path=destination)
     if upload_to_fidi and dry_run and result.has_transactions():
         if settings is None or account_id is None:
             raise ValueError('FiDI upload requires Firefly settings for account selection')
-        json_config = build_json_config(settings, account_id=account_id)
+        json_config = build_json_config(settings, account_id=account_id, allow_duplicates=allow_duplicates)
         if args.stdout:
             json_payload = json.dumps(json_config, indent=2, sort_keys=True)
             print('config.json (dry-run preview):', file=sys.stderr)
@@ -239,7 +255,11 @@ def _write_and_upload(
     elif upload_to_fidi and uploader and result.has_transactions():
         if account_id is None:
             raise ValueError('FiDI upload requires a resolved account id')
-        json_config = build_json_config(uploader.settings, account_id=account_id)
+        json_config = build_json_config(
+            uploader.settings,
+            account_id=account_id,
+            allow_duplicates=allow_duplicates,
+        )
         config_preview = json.dumps(json_config, indent=2, sort_keys=True)
         _emit(f'FiDI config payload: {config_preview}', args, verbose_only=True)
         response = uploader.upload(csv_payload, json_config)
@@ -291,11 +311,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         '-u',
         '--upload',
         nargs='?',
-        const='fidi',
+        const='firefly',
         choices=['fidi', 'firefly'],
-        help='Upload normalized data via FiDI (default) or Firefly (specify "firefly").',
+        help='Upload normalized data via Firefly (default) or FiDI (specify "fidi").',
     )
     parser.add_argument('-n', '--dry-run', action='store_true', help='Dry-run uploads (skip the final POST).')
+    parser.add_argument(
+        '--upload-duplicates',
+        action='store_true',
+        help='Allow duplicate detection to be bypassed (FiDI + Firefly).',
+    )
     parser.add_argument('--stdout', action='store_true', help='Print normalized CSV to stdout')
     parser.add_argument('-V', '--version', action='version', version=f'%(prog)s {pkg_version}')
     verbosity = parser.add_mutually_exclusive_group()
@@ -306,8 +331,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    firefly_emit = _make_emitter(args)
     config_arg = args.config
     config_path = (config_arg or DEFAULT_CONFIG_PATH).expanduser()
+    allow_duplicate_uploads = bool(getattr(args, 'upload_duplicates', False))
 
     def _load(*, optional: bool) -> FireflySettings | None:
         target_path = config_arg if config_arg else None
@@ -341,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError('Firefly uploads require Firefly settings for account metadata')
         payload_builder = FireflyPayloadBuilder(
             _generate_batch_tag(),
-            error_on_duplicate=settings.firefly_error_on_duplicate,
+            error_on_duplicate=settings.firefly_error_on_duplicate and not allow_duplicate_uploads,
         )
     csv_output_path = args.output if not firefly_upload else None
     payload_output_path = args.output if firefly_upload else None
@@ -367,6 +394,15 @@ def main(argv: list[str] | None = None) -> int:
         try:
             combined_transactions.extend(result.transactions)
             _emit(result.summary(), args)
+            if args.verbose and upload_mode:
+                for txn in result.transactions:
+                    _emit(
+                        (
+                            f'Uploading transaction {txn.transaction_id} '
+                            f'({txn.date}, {txn.amount}) from {result.job.source_path.name}'
+                        ),
+                        args,
+                    )
             for warning in result.warnings:
                 _emit(f'Warning: {warning}', args, error=True)
             account_id: str | None = None
@@ -391,6 +427,7 @@ def main(argv: list[str] | None = None) -> int:
                 csv_output_path=csv_output_path,
                 output_dir=output_dir,
                 upload_to_fidi=fidi_upload,
+                firefly_upload=firefly_upload,
                 dry_run=args.dry_run,
             )
             if args.stdout:
@@ -403,33 +440,26 @@ def main(argv: list[str] | None = None) -> int:
             continue
     if args.stdout:
         sys.stdout.write(stdout_payload or build_csv_payload(combined_transactions))
-    if payload_builder and payload_builder.transactions:
+    if payload_builder and payload_builder.has_payloads():
+        payloads = payload_builder.to_payloads()
         if settings is None:
             raise ValueError('Firefly uploads require Firefly settings')
-        firefly_payload = payload_builder.to_dict()
         if payload_output_path:
-            payload_output_path.parent.mkdir(parents=True, exist_ok=True)
-            payload_output_path.write_text(json.dumps(firefly_payload, indent=2), encoding='utf-8')
-            _emit(f'Wrote Firefly API payload to {payload_output_path}', args)
+            write_firefly_payloads(payloads, payload_output_path, emit=firefly_emit)
         if firefly_upload:
             if args.dry_run:
-                _emit('Dry-run: skipped Firefly API upload.', args)
+                firefly_emit('Dry-run: skipped Firefly API upload.')
             else:
-                try:
-                    response = upload_transactions(settings, firefly_payload)
-                except Exception as exc:  # noqa: BLE001 - surface HTTP errors
-                    _emit(f'Error uploading payload to Firefly III: {exc}', args, error=True)
-                    return 1
-                _emit(f'Uploaded Firefly API payload: {response.status_code}', args)
-                body_text = getattr(response, 'text', '') or ''
-                snippet = body_text.strip()
-                if len(snippet) > 500:
-                    snippet = f'{snippet[:500]}…'
-                if not snippet:
-                    snippet = '<empty response body>'
-                _emit(f'Firefly API response body: {snippet}', args, verbose_only=True)
+                upload_exit = upload_firefly_payloads(
+                    payloads,
+                    settings,
+                    emit=firefly_emit,
+                    batch_tag=payload_builder.tag,
+                )
+                if upload_exit != 0:
+                    return upload_exit
     elif firefly_upload:
-        _emit('No transactions available for Firefly upload.', args, error=True)
+        firefly_emit('No transactions available for Firefly upload.', error=True)
     return 0
 
 

@@ -18,6 +18,12 @@ FORMAT_MAP: dict[str, SourceFormat] = {
 """Mapping between file suffixes and supported ``SourceFormat`` values."""
 
 
+def _is_generated_output(path: Path) -> bool:
+    """Return True if ``path`` looks like a Preimporter-generated CSV."""
+
+    return path.suffix.lower() == '.csv' and path.name.endswith('.firefly.csv')
+
+
 def detect_format(path: Path) -> SourceFormat:
     """Infer the ``SourceFormat`` for ``path`` based on its suffix."""
 
@@ -40,6 +46,8 @@ def iter_jobs(target: Path) -> Iterator[ProcessingJob]:
 
     for entry in sorted(expanded.iterdir()):
         if not entry.is_file():
+            continue
+        if _is_generated_output(entry):
             continue
         fmt = detect_format(entry)
         if fmt is SourceFormat.UNKNOWN:

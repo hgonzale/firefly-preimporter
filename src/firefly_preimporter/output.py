@@ -26,7 +26,12 @@ def build_csv_payload(transactions: Iterable[Transaction]) -> str:
     return buffer.getvalue()
 
 
-def build_json_config(settings: FireflySettings, *, account_id: str | None) -> dict[str, object]:
+def build_json_config(
+    settings: FireflySettings,
+    *,
+    account_id: str | None,
+    allow_duplicates: bool = False,
+) -> dict[str, object]:
     """Construct the FiDI JSON config payload for the given account."""
 
     if not isinstance(settings, FireflySettings):
@@ -53,6 +58,9 @@ def build_json_config(settings: FireflySettings, *, account_id: str | None) -> d
     mapping: dict[str, object] = raw_mapping if isinstance(raw_mapping, dict) else {}
     config['mapping'] = mapping
     config['do_mapping'] = [False] * len(roles)
+    if allow_duplicates:
+        config['ignore_duplicate_lines'] = False
+        config['ignore_duplicate_transactions'] = False
 
     return config
 

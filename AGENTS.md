@@ -22,6 +22,8 @@
 - Python 3.11+, 4-space indentation, 120-character line limit (enforced by Ruff).
 - Follow descriptive, snake_case module/function names; classes use PascalCase. Avoid mutating `__all__`.
 - Every public function/class requires a meaningful docstring (Sphinx friendly). Logging via `logging` only; no bare `print()` outside user messaging.
+- Minimize use of `Any`; prefer concrete typing (dataclasses, TypedDicts, enums) over loosely typed `dict[str, Any]`/`list[Any]` helpers so Pyright can enforce real contracts.
+- House common dataclasses in `src/firefly_preimporter/models.py` whenever practical so types are discoverable by both runtime code and stubs/tests.
 
 ## Testing Guidelines
 
@@ -39,3 +41,4 @@
 
 - Secrets (FiDI import secret, Firefly PAT) live in `~/.local/etc/firefly_import.toml`; never commit them. Use `firefly_error_on_duplicate` to control duplicate detection.
 - For Firefly uploads, ensure TLS certificates (`ca_cert_path`) are configured if targeting self-hosted instances.
+- Treat financial account identifiers as sensitive: whenever logging or displaying account numbers, mask everything except the last four characters (the CLI already does this—match that behavior in new code or tests).
