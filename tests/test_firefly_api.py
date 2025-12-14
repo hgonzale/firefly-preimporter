@@ -38,6 +38,31 @@ def _settings() -> FireflySettings:
     )
 
 
+def _make_split() -> FireflyTransactionSplit:
+    return FireflyTransactionSplit(
+        type='withdrawal',
+        date='2025-01-01',
+        amount='10',
+        currency_code='USD',
+        description='Coffee',
+        external_id='abc',
+        notes='Coffee',
+        error_if_duplicate_hash=True,
+        internal_reference='abc',
+        source_id=1,
+    )
+
+
+def _make_payload(transactions: list[FireflyTransactionSplit] | None = None) -> FireflyPayload:
+    return FireflyPayload(
+        group_title='firefly-preimporter',
+        error_if_duplicate_hash=True,
+        apply_rules=True,
+        fire_webhooks=True,
+        transactions=transactions or [_make_split()],
+    )
+
+
 def test_fetch_asset_accounts_handles_pagination() -> None:
     session = Mock(spec=requests.Session)
     response_one = Mock(spec=requests.Response)
@@ -83,7 +108,7 @@ def test_upload_transactions_posts_payload() -> None:
     response.raise_for_status.return_value = None
     response.text = '{"data":[]}'
     session.post.return_value = response
-    payload = {'transactions': []}
+    payload = replace(_make_payload(), transactions=[])
 
     result = upload_transactions(_settings(), payload, session=session)
 
@@ -91,33 +116,14 @@ def test_upload_transactions_posts_payload() -> None:
     session.post.assert_called_once()
     call = session.post.call_args
     assert call.args[0].endswith('/transactions')
-    assert call.kwargs['json'] == payload
+    assert call.kwargs['json'] == payload.to_dict()
     headers = call.kwargs['headers']
     assert headers['Authorization'].startswith('Bearer ')
 
 
 def test_write_firefly_payloads(tmp_path: Path) -> None:
-    split = FireflyTransactionSplit(
-        type='withdrawal',
-        date='2025-01-01',
-        amount='10',
-        currency_code='USD',
-        description='Coffee',
-        external_id='abc',
-        notes='Coffee',
-        error_if_duplicate_hash=True,
-        internal_reference='abc',
-        source_id=1,
-    )
-    payloads = [
-        FireflyPayload(
-            group_title='firefly-preimporter',
-            error_if_duplicate_hash=True,
-            apply_rules=True,
-            fire_webhooks=True,
-            transactions=[split],
-        ),
-    ]
+    split = _make_split()
+    payloads = [replace(_make_payload(), transactions=[split])]
     output_path = tmp_path / 'payloads.json'
     messages: list[str] = []
 
@@ -132,25 +138,19 @@ def test_write_firefly_payloads(tmp_path: Path) -> None:
 
 
 def test_firefly_payload_serialization_handles_deposits() -> None:
-    split = FireflyTransactionSplit(
+    split = replace(
+        _make_split(),
         type='deposit',
         date='2025-01-02',
         amount='25.00',
-        currency_code='USD',
         description='Paycheck',
         external_id='xyz',
         notes='Paycheck',
-        error_if_duplicate_hash=True,
         internal_reference='xyz',
+        source_id=None,
         destination_id=7,
     )
-    payload = FireflyPayload(
-        group_title='firefly-preimporter',
-        error_if_duplicate_hash=True,
-        apply_rules=False,
-        fire_webhooks=False,
-        transactions=[split],
-    )
+    payload = replace(_make_payload(transactions=[split]), apply_rules=False, fire_webhooks=False)
 
     serialized = cast('dict[str, object]', payload.to_dict())
     transactions = cast('list[dict[str, object]]', serialized['transactions'])
@@ -163,31 +163,12 @@ def test_firefly_payload_serialization_handles_deposits() -> None:
 
 
 def test_upload_firefly_payloads_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = FireflyPayload(
-        group_title='firefly-preimporter',
-        error_if_duplicate_hash=True,
-        apply_rules=True,
-        fire_webhooks=True,
-        transactions=[
-            FireflyTransactionSplit(
-                type='withdrawal',
-                date='2025-01-01',
-                amount='10',
-                currency_code='USD',
-                description='Coffee',
-                external_id='abc',
-                notes='Coffee',
-                error_if_duplicate_hash=True,
-                internal_reference='abc',
-                source_id=1,
-            ),
-        ],
-    )
+    payload = _make_payload()
     called: list[dict[str, object]] = []
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: dict[str, object]) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = settings
-        called.append(payload_arg)
+        called.append(payload_arg.to_dict())
         return SimpleNamespace(status_code=200, text='{}', json=lambda: {'data': []})
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload_transactions)
@@ -204,33 +185,14 @@ def test_upload_firefly_payloads_success(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_upload_firefly_payloads_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = FireflyPayload(
-        group_title='firefly-preimporter',
-        error_if_duplicate_hash=True,
-        apply_rules=True,
-        fire_webhooks=True,
-        transactions=[
-            FireflyTransactionSplit(
-                type='withdrawal',
-                date='2025-01-01',
-                amount='10',
-                currency_code='USD',
-                description='Coffee',
-                external_id='abc',
-                notes='Coffee',
-                error_if_duplicate_hash=True,
-                internal_reference='abc',
-                source_id=1,
-            ),
-        ],
-    )
+    payload = _make_payload()
     response = Response()
     response.status_code = 422
     response._content = b'{"message":"Invalid"}'
     http_error = HTTPError('422 Client Error')
     http_error.response = response  # type: ignore[assignment]
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: dict[str, object]) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
         raise http_error
 
@@ -248,26 +210,7 @@ def test_upload_firefly_payloads_http_error(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_upload_firefly_payloads_duplicate(monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = FireflyPayload(
-        group_title='firefly-preimporter',
-        error_if_duplicate_hash=True,
-        apply_rules=True,
-        fire_webhooks=True,
-        transactions=[
-            FireflyTransactionSplit(
-                type='withdrawal',
-                date='2025-01-01',
-                amount='10',
-                currency_code='USD',
-                description='Coffee',
-                external_id='abc',
-                notes='Coffee',
-                error_if_duplicate_hash=True,
-                internal_reference='abc',
-                source_id=1,
-            ),
-        ],
-    )
+    payload = _make_payload()
     response = Response()
     response.status_code = 422
     response._content = (  # type: ignore[attr-defined]
@@ -276,7 +219,7 @@ def test_upload_firefly_payloads_duplicate(monkeypatch: pytest.MonkeyPatch) -> N
     http_error = HTTPError('422 Client Error')
     http_error.response = response  # type: ignore[assignment]
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: dict[str, object]) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
         raise http_error
 
@@ -294,28 +237,9 @@ def test_upload_firefly_payloads_duplicate(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_upload_firefly_payloads_applies_batch_tag(monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = FireflyPayload(
-        group_title='firefly-preimporter',
-        error_if_duplicate_hash=True,
-        apply_rules=True,
-        fire_webhooks=True,
-        transactions=[
-            FireflyTransactionSplit(
-                type='withdrawal',
-                date='2025-01-01',
-                amount='10',
-                currency_code='USD',
-                description='Coffee',
-                external_id='abc',
-                notes='Coffee',
-                error_if_duplicate_hash=True,
-                internal_reference='abc',
-                source_id=1,
-            ),
-        ],
-    )
+    payload = _make_payload()
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: dict[str, object]) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
         return SimpleNamespace(
             status_code=200,
@@ -442,21 +366,23 @@ def test_mask_account_number_preserves_short_values() -> None:
 
 
 def test_format_firefly_status_truncates_description() -> None:
-    payload = {
-        'transactions': [
-            {
-                'date': '2025-01-01',
-                'description': 'This is a very long description that should truncate',
-            },
+    payload = replace(
+        _make_payload(),
+        transactions=[
+            replace(
+                _make_split(),
+                description='This is a very long description that should truncate',
+            ),
         ],
-    }
+    )
     label = firefly_api._format_firefly_status(payload)
     assert label.startswith('2025-01-01 "This is a very')
     assert label.endswith('…"')
 
 
 def test_format_firefly_status_handles_missing_transactions() -> None:
-    label = firefly_api._format_firefly_status({})
+    payload = replace(_make_payload(), transactions=[])
+    label = firefly_api._format_firefly_status(payload)
     assert label == '? ""'
 
 
@@ -590,28 +516,9 @@ def test_apply_batch_tag_logs_and_raises_on_other_exception(monkeypatch: pytest.
 
 
 def test_upload_firefly_payloads_handles_general_exception(monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = FireflyPayload(
-        group_title='firefly-preimporter',
-        error_if_duplicate_hash=True,
-        apply_rules=True,
-        fire_webhooks=True,
-        transactions=[
-            FireflyTransactionSplit(
-                type='withdrawal',
-                date='2025-01-01',
-                amount='10',
-                currency_code='USD',
-                description='Coffee',
-                external_id='abc',
-                notes='Coffee',
-                error_if_duplicate_hash=True,
-                internal_reference='abc',
-                source_id=1,
-            ),
-        ],
-    )
+    payload = _make_payload()
 
-    def boom(settings: FireflySettings, payload_arg: dict[str, object]) -> None:
+    def boom(settings: FireflySettings, payload_arg: FireflyPayload) -> None:
         _ = (settings, payload_arg)
         raise RuntimeError('boom')
 
@@ -630,28 +537,9 @@ def test_upload_firefly_payloads_handles_general_exception(monkeypatch: pytest.M
 
 
 def test_upload_firefly_payloads_handles_batch_tag_request_exception(monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = FireflyPayload(
-        group_title='firefly-preimporter',
-        error_if_duplicate_hash=True,
-        apply_rules=True,
-        fire_webhooks=True,
-        transactions=[
-            FireflyTransactionSplit(
-                type='withdrawal',
-                date='2025-01-01',
-                amount='10',
-                currency_code='USD',
-                description='Coffee',
-                external_id='abc',
-                notes='Coffee',
-                error_if_duplicate_hash=True,
-                internal_reference='abc',
-                source_id=1,
-            ),
-        ],
-    )
+    payload = _make_payload()
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: dict[str, object]) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
         return SimpleNamespace(
             status_code=200,

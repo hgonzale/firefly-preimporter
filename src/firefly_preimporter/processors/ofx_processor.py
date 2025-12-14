@@ -16,11 +16,11 @@ from ofxtools.Types import OFXTypeWarning
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from collections.abc import Iterator
     from pathlib import Path
-    from typing import Any, Protocol
+    from typing import Protocol
 
     class OFXTransaction(Protocol):
-        dtposted: Any
-        trnamt: Any
+        dtposted: datetime | str
+        trnamt: Decimal | str
         name: str | None
         memo: str | None
         fitid: str | None

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2025-12-14
+
+### Changed
+
+- Firefly uploads now pass `FireflyPayload` dataclasses straight through status logging, HTTP POSTs, and duplicate checks, eliminating the intermediate dict conversions and shrinking our remaining `Any` usage.
+- Firefly API tests build fixtures via typed helpers that mirror the production dataclasses, so serialization/deserialization coverage matches the runtime structures.
+
 ## [0.2.1] - 2025-12-13
 
 ### Added

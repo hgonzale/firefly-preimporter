@@ -10,13 +10,12 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from requests.exceptions import HTTPError, RequestException
 
 import requests
-from firefly_preimporter.models import UploadedGroup
+from firefly_preimporter.models import FireflyPayload, UploadedGroup
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from pathlib import Path
 
     from firefly_preimporter.config import FireflySettings
-    from firefly_preimporter.models import FireflyPayload
     from requests import Session
 
 
@@ -34,15 +33,11 @@ def _mask_account_number(account_number: str) -> str:
     return f'{masked_prefix}{clean[-4:]}'
 
 
-def _format_firefly_status(payload: Mapping[str, Any]) -> str:
-    transactions = payload.get('transactions')
-    split: Mapping[str, Any] = {}
-    if isinstance(transactions, list) and transactions:
-        candidate = transactions[0]
-        if isinstance(candidate, Mapping):
-            split = candidate
-    date = str(split.get('date') or '?')
-    description_full = str(split.get('description') or '').replace('\n', ' ').strip()
+def _format_firefly_status(payload: FireflyPayload) -> str:
+    transactions = payload.transactions
+    split = transactions[0] if transactions else None
+    date = split.date if split and split.date else '?'
+    description_full = (split.description if split and split.description else '').replace('\n', ' ').strip()
     truncated = description_full[:20]
     if len(description_full) > len(truncated):
         truncated = f'{truncated}\u2026'
@@ -287,7 +282,7 @@ def write_firefly_payloads(payloads: list[FireflyPayload], output_path: Path, *,
 
 def upload_transactions(
     settings: FireflySettings,
-    payload: Mapping[str, Any],
+    payload: FireflyPayload,
     *,
     session: Session | None = None,
 ) -> requests.Response:
@@ -296,6 +291,7 @@ def upload_transactions(
     http = session or requests.Session()
     base_url = settings.firefly_api_base.rstrip('/')
     url = f'{base_url}/transactions'
+    payload_dict = payload.to_dict()
     headers = {
         'Authorization': f'Bearer {settings.personal_access_token}',
         'Accept': 'application/json',
@@ -304,7 +300,7 @@ def upload_transactions(
     response = http.post(
         url,
         headers=headers,
-        json=payload,
+        json=payload_dict,
         timeout=settings.request_timeout,
         verify=_verify_option(settings),
     )
@@ -321,10 +317,9 @@ def upload_firefly_payloads(
 ) -> int:
     uploaded_groups: list[UploadedGroup] = []
     for payload in payloads:
-        payload_dict = payload.to_dict()
-        status_label = _format_firefly_status(payload_dict)
+        status_label = _format_firefly_status(payload)
         try:
-            response = upload_transactions(settings, payload_dict)
+            response = upload_transactions(settings, payload)
         except HTTPError as exc:
             response = cast('requests.Response | None', exc.response)
             if _is_duplicate_error(response):
