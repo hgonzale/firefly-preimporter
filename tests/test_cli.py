@@ -21,16 +21,40 @@ TOKEN_PLACEHOLDER = 'tok' + 'en'
 def test_parse_args_basic() -> None:
     args = cli.parse_args(['foo.csv'])
     assert args.targets == [Path('foo.csv')]
-    assert args.upload is None
+    assert args.upload is False
+    assert args.fidi is False
 
 
 def test_parse_args_short_flags(tmp_path: Path) -> None:
     output = tmp_path / 'out.csv'
     args = cli.parse_args(['-u', '-n', '-o', str(output), '-q', 'foo.csv'])
-    assert args.upload == 'firefly'
+    assert args.upload is True
     assert args.dry_run
     assert Path(args.output) == output
     assert args.quiet
+
+
+def test_parse_args_upload_without_explicit_mode(tmp_path: Path) -> None:
+    target = tmp_path / 'stmt.csv'
+    args = cli.parse_args(['-u', str(target)])
+    assert args.upload is True
+    assert args.fidi is False
+    assert args.targets == [target]
+
+
+def test_parse_args_upload_long_flag_without_mode(tmp_path: Path) -> None:
+    target = tmp_path / 'stmt.csv'
+    args = cli.parse_args(['--upload', str(target)])
+    assert args.upload is True
+    assert args.fidi is False
+    assert args.targets == [target]
+
+
+def test_parse_args_fidi_flag_requires_upload(tmp_path: Path) -> None:
+    target = tmp_path / 'stmt.csv'
+    target.write_text('', encoding='utf-8')
+    with pytest.raises(ValueError, match='--fidi requires --upload'):
+        cli.main(['--fidi', str(target)])
 
 
 @pytest.fixture
@@ -198,7 +222,7 @@ def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: Pr
 
     monkeypatch.setattr(cli, 'build_json_config', fake_build_json_config)
 
-    exit_code = cli.main([str(dummy_job.source_path), '-u', 'fidi'])
+    exit_code = cli.main([str(dummy_job.source_path), '-u', '--fidi'])
     assert exit_code == 0
     assert captured['account_id'] == '9001'
     assert fetch_calls['count'] == 1
@@ -264,7 +288,7 @@ def test_resolve_account_id_flag_matches_account_number(
     monkeypatch: pytest.MonkeyPatch,
     dummy_job: ProcessingJob,
 ) -> None:
-    args = Namespace(upload='fidi', account_id='OFX-100')
+    args = Namespace(upload=True, account_id='OFX-100')
     settings = FireflySettings(
         fidi_import_secret=SECRET_PLACEHOLDER,
         personal_access_token=TOKEN_PLACEHOLDER,
@@ -326,7 +350,7 @@ def test_resolve_account_id_skips_lookup_when_not_uploading(
 
 
 def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
-    args = Namespace(upload='fidi')
+    args = Namespace(upload=True)
     settings = FireflySettings(
         fidi_import_secret=SECRET_PLACEHOLDER,
         personal_access_token=TOKEN_PLACEHOLDER,
@@ -348,7 +372,7 @@ def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPat
 
 
 def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
-    args = Namespace(upload='fidi')
+    args = Namespace(upload=True)
     settings = FireflySettings(
         fidi_import_secret=SECRET_PLACEHOLDER,
         personal_access_token=TOKEN_PLACEHOLDER,
@@ -431,7 +455,7 @@ def test_main_reports_dry_run_upload(
     handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
     cli.LOGGER.addHandler(handler)
     try:
-        exit_code = cli.main([str(dummy_job.source_path), '-u', 'fidi', '--dry-run'])
+        exit_code = cli.main([str(dummy_job.source_path), '-u', '--fidi', '--dry-run'])
     finally:
         cli.LOGGER.removeHandler(handler)
     assert exit_code == 0
@@ -486,7 +510,7 @@ def test_fidi_upload_logs_response_body_when_verbose(
     handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
     cli.LOGGER.addHandler(handler)
     try:
-        exit_code = cli.main([str(dummy_job.source_path), '-u', 'fidi', '--verbose'])
+        exit_code = cli.main([str(dummy_job.source_path), '-u', '--fidi', '--verbose'])
     finally:
         cli.LOGGER.removeHandler(handler)
     assert exit_code == 0
@@ -527,7 +551,7 @@ def test_stdout_dry_run_prints_json(
     monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'csv-data')  # noqa: ARG005
 
     exit_code = cli.main(
-        [str(dummy_job.source_path), '-u', 'fidi', '--dry-run', '--stdout'],
+        [str(dummy_job.source_path), '-u', '--fidi', '--dry-run', '--stdout'],
     )
     captured = capsys.readouterr()
     assert exit_code == 0
@@ -570,7 +594,7 @@ def test_firefly_upload_respects_dry_run(
     payload_path = tmp_path / 'firefly.json'
 
     exit_code = cli.main(
-        [str(dummy_job.source_path), '--upload', 'firefly', '--dry-run', '--output', str(payload_path)],
+        [str(dummy_job.source_path), '--upload', '--dry-run', '--output', str(payload_path)],
     )
     assert exit_code == 0
     data = json.loads(payload_path.read_text(encoding='utf-8'))
@@ -634,7 +658,7 @@ def test_firefly_upload_duplicate_flag_controls_builder(
 
     monkeypatch.setattr(cli, 'FireflyPayloadBuilder', DummyBuilder)
 
-    args = [str(dummy_job.source_path), '--upload', 'firefly']
+    args = [str(dummy_job.source_path), '--upload']
     if allow_duplicates:
         args.insert(0, '--upload-duplicates')
     exit_code = cli.main(args)
@@ -696,7 +720,7 @@ def test_firefly_upload_posts_payload(
     handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
     cli.LOGGER.addHandler(handler)
     try:
-        exit_code = cli.main([str(dummy_job.source_path), '--upload', 'firefly', '--output', str(payload_path)])
+        exit_code = cli.main([str(dummy_job.source_path), '--upload', '--output', str(payload_path)])
     finally:
         cli.LOGGER.removeHandler(handler)
     assert exit_code == 0
@@ -762,7 +786,7 @@ def test_firefly_upload_logs_response_on_http_error(
     handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
     cli.LOGGER.addHandler(handler)
     try:
-        exit_code = cli.main([str(dummy_job.source_path), '--upload', 'firefly'])
+        exit_code = cli.main([str(dummy_job.source_path), '--upload'])
     finally:
         cli.LOGGER.removeHandler(handler)
     assert exit_code == 1

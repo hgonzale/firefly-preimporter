@@ -307,13 +307,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument('--account-id', help='Default Firefly account id for uploads (prompts if omitted)')
     parser.add_argument('-o', '--output', type=str, help='File path (single job) or directory (multi-job/per-file).')
+    parser.add_argument('-u', '--upload', action='store_true', help='Upload normalized data (Firefly by default).')
     parser.add_argument(
-        '-u',
-        '--upload',
-        nargs='?',
-        const='firefly',
-        choices=['fidi', 'firefly'],
-        help='Upload normalized data via Firefly (default) or FiDI (specify "fidi").',
+        '--fidi',
+        action='store_true',
+        help='When used with -u/--upload, send the batch via FiDI auto-upload instead of Firefly.',
     )
     parser.add_argument('-n', '--dry-run', action='store_true', help='Dry-run uploads (skip the final POST).')
     parser.add_argument(
@@ -351,15 +349,22 @@ def main(argv: list[str] | None = None) -> int:
     elif config_path.is_file():
         settings = _load(optional=True)
 
-    upload_mode = args.upload
-    if upload_mode is None and settings and settings.default_upload:
+    if args.fidi and not args.upload:
+        raise ValueError('--fidi requires --upload/-u')
+
+    upload_mode: str | None = None
+    if args.upload:
+        upload_mode = 'fidi' if args.fidi else 'firefly'
+    elif settings and settings.default_upload:
         upload_mode = settings.default_upload
+
+    upload_requested = upload_mode is not None
     fidi_upload = upload_mode == 'fidi'
     firefly_upload = upload_mode == 'firefly'
     firefly_payload_requested = firefly_upload
-    if args.dry_run and upload_mode is None:
+    if args.dry_run and not upload_requested:
         raise ValueError('--dry-run requires --upload/ -u')
-    if upload_mode and settings is None:
+    if upload_requested and settings is None:
         settings = _load(optional=False)
     uploader = FidiUploader(settings, dry_run=args.dry_run) if settings and fidi_upload and not args.dry_run else None
     payload_builder: FireflyPayloadBuilder | None = None
@@ -384,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError('--stdout is incompatible with --output')
     combined_transactions: list[Transaction] = []
     stdout_payload: str | None = None
-    require_account_resolution = upload_mode is not None
+    require_account_resolution = upload_requested
     for job in jobs:
         try:
             result = _process_job(job)
@@ -394,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             combined_transactions.extend(result.transactions)
             _emit(result.summary(), args)
-            if args.verbose and upload_mode:
+            if args.verbose and upload_requested:
                 for txn in result.transactions:
                     _emit(
                         (

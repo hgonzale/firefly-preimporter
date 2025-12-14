@@ -23,7 +23,8 @@ Key flags:
 
 - `--stdout` only works for a single input target (and when combined with `-n/--dry-run` it prints the JSON config preview to stderr alongside the CSV).
 - When no output flags are provided (and `-u` is not used), each file produces `<name>.firefly.csv` next to the original input.
-- `-u/--upload [firefly|fidi]` enables uploads. Use `-u` (or `-u firefly`) to post directly to the Firefly API (default), or pass `-u fidi` for FiDI auto-upload. While uploading, the CLI reuses OFX/QFX account numbers when possible; otherwise it fetches the asset list and prompts (you can bypass the prompt with `--account-id`, press `p` to preview, or `s` to skip the file).
+- `-u/--upload` enables uploads (Firefly by default). Combine it with `--fidi` when you want to route the batch through FiDI auto-upload instead. While uploading, the CLI reuses OFX/QFX account numbers when possible; otherwise it fetches the asset list and prompts (you can bypass the prompt with `--account-id`, press `p` to preview, or `s` to skip the file).
+- `--fidi` is only meaningful together with `-u/--upload`; it switches the uploader from Firefly to FiDI without altering other behavior.
 - `-o/--output` accepts either a file path (single job) or a directory (multi-job/per-file; append a trailing `/` or point to an existing folder). During regular runs it writes the normalized CSV(s); when `-u firefly` is active it instead saves the generated Firefly API payload JSON.
 - `-V/--version` prints the installed version and exits.
 - `-n/--dry-run` only works together with `-u/--upload`; it runs the full normalization flow but skips the final FiDI/Firefly POST while still emitting previews/outputs for inspection.
@@ -37,7 +38,7 @@ Place a TOML file (default `~/.local/etc/firefly_import.toml`) with your API cre
 personal_access_token = "..."
 fidi_import_secret = "..."
 firefly_error_on_duplicate = true  # keep true to mirror FiDI duplicate-hash checks
-default_upload = "firefly"        # optional: auto-run `-u firefly` (valid values: "fidi", "firefly", or empty)
+default_upload = "firefly"        # optional: auto-run uploads (valid values: "fidi", "firefly", or empty)
 ```
 
 All other FiDI settings (like the JSON roles/mapping) remain under `[default_json_config]`. When `firefly_error_on_duplicate` stays true (the default) every Firefly upload we generate carries `error_if_duplicate_hash=true`, matching FiDI's duplicate-protection behavior; flip it off only if you explicitly want Firefly III to accept potentially duplicated transactions.

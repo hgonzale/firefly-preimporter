@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 - Firefly uploads now pass `FireflyPayload` dataclasses straight through status logging, HTTP POSTs, and duplicate checks, eliminating the intermediate dict conversions and shrinking our remaining `Any` usage.
 - Firefly API tests build fixtures via typed helpers that mirror the production dataclasses, so serialization/deserialization coverage matches the runtime structures.
+- Simplified CLI flags: `-u/--upload` now always targets Firefly by default, and a companion `--fidi` switch opts the run into FiDI auto-upload when needed (replacing the old positional mode argument).
+
+### Fixed
+
+- `-u` / `--upload` without an explicit mode (for example `firefly-preimporter -u stmt.csv`) once again defaults to Firefly uploads instead of treating the next positional argument as an invalid mode.
 
 ## [0.2.1] - 2025-12-13
 
