@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [0.2.3] - 2025-12-14
 
+### Changed
+
+- Firefly uploads no longer send an explicit `group_title`; Firefly III now falls back to the split description automatically, matching the UI’s behavior and avoiding redundant metadata.
+
 ### Fixed
 
 - CSV ingestion now recognizes `Transaction Date` (and its snake/camel-case variants) as the primary date column, so statements that use both “Transaction Date” and “Post Date” headers import cleanly without manual edits.

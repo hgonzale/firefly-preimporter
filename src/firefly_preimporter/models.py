@@ -105,20 +105,22 @@ class FireflyTransactionSplit:
 class FireflyPayload:
     """Full Firefly III transaction payload (single-split groups)."""
 
-    group_title: str
     error_if_duplicate_hash: bool
     apply_rules: bool
     fire_webhooks: bool
     transactions: list[FireflyTransactionSplit]
+    group_title: str | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
-            'group_title': self.group_title,
+        payload: dict[str, object] = {
             'error_if_duplicate_hash': self.error_if_duplicate_hash,
             'apply_rules': self.apply_rules,
             'fire_webhooks': self.fire_webhooks,
             'transactions': [split.to_dict() for split in self.transactions],
         }
+        if self.group_title:
+            payload['group_title'] = self.group_title
+        return payload
 
 
 @dataclass(slots=True)

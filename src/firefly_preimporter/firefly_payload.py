@@ -87,7 +87,6 @@ class FireflyPayloadBuilder:
             split.destination_id = account_identifier
             split.source_name = '(no name)'
         return FireflyPayload(
-            group_title=description,
             error_if_duplicate_hash=self.error_on_duplicate,
             apply_rules=self.apply_rules,
             fire_webhooks=self.fire_webhooks,
