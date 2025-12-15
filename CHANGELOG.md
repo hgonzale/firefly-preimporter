@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.2.2] - 2025-12-14
+## [0.2.3] - 2025-12-14
+
+### Fixed
+
+- CSV ingestion now recognizes `Transaction Date` (and its snake/camel-case variants) as the primary date column, so statements that use both “Transaction Date” and “Post Date” headers import cleanly without manual edits.
+
+## [0.2.2] - 2025-12-13
 
 ### Changed
 

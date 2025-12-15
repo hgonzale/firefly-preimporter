@@ -57,6 +57,23 @@ def test_process_csv_accepts_alternate_headers(tmp_path: Path) -> None:
     assert txn.amount == '-45.67'
 
 
+def test_process_csv_supports_transaction_date_header(tmp_path: Path) -> None:
+    file_path = tmp_path / 'fixture.csv'
+    file_path.write_text(
+        (
+            'Transaction Date,Post Date,Description,Category,Type,Amount,Memo\n'
+            '11/20/2025,11/23/2025,AMYS DRIVE THRU - SFO 110,Food & Drink,Sale,-16.93,\n'
+            '11/15/2025,11/16/2025,HYATT REGENCY SF ARP-PRK,Travel,Sale,-12.00,\n'
+        ),
+        encoding='utf-8',
+    )
+    job = ProcessingJob(source_path=file_path, source_format=SourceFormat.CSV)
+    result = process_csv(job)
+    assert len(result.transactions) == 2
+    assert result.transactions[0].date == '2025-11-20'
+    assert result.transactions[1].date == '2025-11-15'
+
+
 def test_normalize_date_invalid() -> None:
     with pytest.raises(ValueError, match='unrecognized date'):
         normalize_date('31/31/2024')

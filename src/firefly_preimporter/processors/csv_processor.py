@@ -14,7 +14,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from collections.abc import Iterable, Iterator
 REQUIRED_COLUMNS = ('date', 'description', 'amount')
 COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
-    'date': ('date', 'posted date', 'posted_date', 'posteddate'),
+    'date': (
+        'date',
+        'posted date',
+        'posted_date',
+        'posteddate',
+        'transaction date',
+        'transaction_date',
+        'transactiondate',
+    ),
     'description': ('description', 'payee', 'memo'),
     'amount': ('amount', 'transaction amount'),
 }
