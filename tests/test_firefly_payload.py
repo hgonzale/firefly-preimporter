@@ -24,7 +24,7 @@ def test_builder_with_withdrawal() -> None:
     assert entry.tags == []
     assert entry.error_if_duplicate_hash is True
     assert entry.internal_reference == 'abc'
-    assert payloads[0].group_title == 'firefly-preimporter'
+    assert payloads[0].group_title == 'Sample'
     assert payloads[0].error_if_duplicate_hash is True
     assert payloads[0].apply_rules is True
     assert payloads[0].fire_webhooks is True
@@ -54,3 +54,15 @@ def test_builder_produces_deterministic_payloads() -> None:
     second.add_result(_result('3.25'), account_id='42', currency_code='USD')
 
     assert first.to_payloads()[0].to_dict() == second.to_payloads()[0].to_dict()
+
+
+def test_builder_group_title_uses_sanitized_description() -> None:
+    builder = FireflyPayloadBuilder(tag='batch-tag')
+    job = ProcessingJob(source_path=Path('in.csv'), source_format=SourceFormat.CSV)
+    txn = Transaction(transaction_id='xyz', date='2025-01-01', description='   ' * 10, amount='-5.00')
+    result = ProcessingResult(job=job, transactions=[txn])
+    builder.add_result(result, account_id='1', currency_code='USD')
+    payload = builder.to_payloads()[0]
+    assert payload.group_title == 'Imported transaction'
+    split = payload.transactions[0]
+    assert split.description == 'Imported transaction'

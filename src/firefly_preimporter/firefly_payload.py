@@ -30,9 +30,6 @@ def _sanitize_description(description: str) -> str:
     return text[:255]
 
 
-DEFAULT_FIREFLY_GROUP_TITLE = 'firefly-preimporter'
-
-
 class FireflyPayloadBuilder:
     """Aggregate normalized transactions into Firefly API payloads."""
 
@@ -90,7 +87,7 @@ class FireflyPayloadBuilder:
             split.destination_id = account_identifier
             split.source_name = '(no name)'
         return FireflyPayload(
-            group_title=DEFAULT_FIREFLY_GROUP_TITLE,
+            group_title=description,
             error_if_duplicate_hash=self.error_on_duplicate,
             apply_rules=self.apply_rules,
             fire_webhooks=self.fire_webhooks,
