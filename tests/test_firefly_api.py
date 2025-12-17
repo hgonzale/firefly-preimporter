@@ -6,7 +6,6 @@ from typing import cast
 from unittest.mock import Mock
 
 import pytest
-from requests.exceptions import HTTPError, RequestException
 
 import firefly_preimporter.firefly_api as firefly_api
 import requests
@@ -20,6 +19,7 @@ from firefly_preimporter.firefly_api import (
 )
 from firefly_preimporter.models import FireflyPayload, FireflyTransactionSplit, UploadedGroup
 from requests import Response
+from requests.exceptions import HTTPError, RequestException
 
 
 def _settings() -> FireflySettings:
@@ -152,7 +152,7 @@ def test_firefly_payload_serialization_handles_deposits() -> None:
     )
     payload = replace(_make_payload(transactions=[split]), apply_rules=False, fire_webhooks=False)
 
-    serialized = cast('dict[str, object]', payload.to_dict())
+    serialized = payload.to_dict()
     transactions = cast('list[dict[str, object]]', serialized['transactions'])
     txn = transactions[0]
     assert txn['type'] == 'deposit'
@@ -326,7 +326,9 @@ def test_ensure_tag_exists_treats_422_as_success(monkeypatch: pytest.MonkeyPatch
     class DummyResponse:
         def raise_for_status(self) -> None:
             error = HTTPError('422')
-            error.response = SimpleNamespace(status_code=422)
+            resp = Response()
+            resp.status_code = 422
+            error.response = resp
             raise error
 
     monkeypatch.setattr(firefly_api.requests, 'post', lambda *_, **__: DummyResponse())

@@ -29,3 +29,20 @@ class Session:
         timeout: float | None = ...,
         verify: bool | str | None = ...,
     ) -> Response: ...
+
+def post(
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = ...,
+    json: object | None = ...,
+    timeout: float | None = ...,
+    verify: bool | str | None = ...,
+) -> Response: ...
+def put(
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = ...,
+    json: object | None = ...,
+    timeout: float | None = ...,
+    verify: bool | str | None = ...,
+) -> Response: ...

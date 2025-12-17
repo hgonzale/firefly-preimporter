@@ -7,10 +7,9 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from requests.exceptions import HTTPError, RequestException
-
 import requests
 from firefly_preimporter.models import FireflyPayload, UploadedGroup
+from requests.exceptions import HTTPError, RequestException
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from pathlib import Path
@@ -149,9 +148,9 @@ def _extract_uploaded_groups(response: requests.Response) -> list[UploadedGroup]
     data = payload.get('data')
     entries: list[Mapping[str, Any]] = []
     if isinstance(data, list):
-        entries = [entry for entry in data if isinstance(entry, Mapping)]
+        entries = [cast('Mapping[str, Any]', entry) for entry in data if isinstance(entry, Mapping)]
     elif isinstance(data, Mapping):
-        entries = [data]
+        entries = [cast('Mapping[str, Any]', data)]
     else:
         return []
     groups: list[UploadedGroup] = []
@@ -162,7 +161,11 @@ def _extract_uploaded_groups(response: requests.Response) -> list[UploadedGroup]
         except (TypeError, ValueError):
             continue
         attributes = entry.get('attributes')
-        transactions = attributes.get('transactions') if isinstance(attributes, Mapping) else None
+        if isinstance(attributes, Mapping):
+            attributes_map = cast('Mapping[str, Any]', attributes)
+            transactions = attributes_map.get('transactions')
+        else:
+            transactions = None
         if not isinstance(transactions, list):
             continue
         journals: dict[int, list[str]] = {}
@@ -199,7 +202,7 @@ def _ensure_tag_exists(settings: FireflySettings, tag: str) -> None:
     base_url = settings.firefly_api_base.rstrip('/')
     url = f'{base_url}/tags'
     body = {'tag': tag, 'date': datetime.now().date().isoformat()}
-    response = requests.post(  # type: ignore[attr-defined]
+    response = requests.post(
         url,
         headers={
             'Authorization': f'Bearer {settings.personal_access_token}',
@@ -233,7 +236,7 @@ def _append_tag_to_group(
     for journal_id, tags in journal_map.items():
         merged_tags = _merge_tags(list(tags), tag)
         transactions_payload.append({'transaction_journal_id': str(journal_id), 'tags': merged_tags})
-    response = requests.put(  # type: ignore[attr-defined]
+    response = requests.put(
         url,
         headers={
             'Authorization': f'Bearer {settings.personal_access_token}',
@@ -321,7 +324,7 @@ def upload_firefly_payloads(
         try:
             response = upload_transactions(settings, payload)
         except HTTPError as exc:
-            response = cast('requests.Response | None', exc.response)
+            response = exc.response
             if _is_duplicate_error(response):
                 emit(f'Firefly upload {status_label} - duplicate')
                 if response is not None:

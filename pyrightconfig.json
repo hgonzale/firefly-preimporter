@@ -1,7 +1,0 @@
-{
-  "include": ["src", "tests"],
-  "extraPaths": ["src", "stubs"],
-  "pythonVersion": "3.11",
-  "venvPath": ".",
-  "venv": ".venv"
-}

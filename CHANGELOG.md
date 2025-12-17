@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Firefly uploads no longer send an explicit `group_title`; Firefly III now falls back to the split description automatically, matching the UI’s behavior and avoiding redundant metadata.
+- Swapped the static type checker from Pyright to ty (tox `types` now runs `ty check`).
 
 ### Fixed
 

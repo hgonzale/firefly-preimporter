@@ -14,7 +14,7 @@
 - Never call `pip install` directly; declare dependencies in `pyproject.toml` and let `uv sync`/`uv pip` manage installs.
 - `tox -e lint` — run Ruff linting/format checks.
 - `tox -e format` — auto-format via Ruff (use before committing style fixes).
-- `tox -e types` — Pyright type checking (Firefly stubs + `py.typed` must stay consistent).
+- `tox -e types` — ty type checking (Firefly stubs + `py.typed` must stay consistent).
 - `tox -e py311` — full pytest suite with coverage; fails if coverage < 85%.
 
 ## Coding Style & Naming Conventions
@@ -22,7 +22,7 @@
 - Python 3.11+, 4-space indentation, 120-character line limit (enforced by Ruff).
 - Follow descriptive, snake_case module/function names; classes use PascalCase. Avoid mutating `__all__`.
 - Every public function/class requires a meaningful docstring (Sphinx friendly). Logging via `logging` only; no bare `print()` outside user messaging.
-- Minimize use of `Any`; prefer concrete typing (dataclasses, TypedDicts, enums) over loosely typed `dict[str, Any]`/`list[Any]` helpers so Pyright can enforce real contracts.
+- Minimize use of `Any`; prefer concrete typing (dataclasses, TypedDicts, enums) over loosely typed `dict[str, Any]`/`list[Any]` helpers so ty can enforce real contracts.
 - House common dataclasses in `src/firefly_preimporter/models.py` whenever practical so types are discoverable by both runtime code and stubs/tests.
 
 ## Testing Guidelines

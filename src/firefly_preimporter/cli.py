@@ -10,6 +10,7 @@ import sys
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from firefly_preimporter import __version__ as pkg_version
 from firefly_preimporter.config import DEFAULT_CONFIG_PATH, FireflySettings, load_settings
@@ -60,7 +61,8 @@ def _get_account_currency_code(account_id: str, accounts: list[dict[str, object]
         if str(account.get('id')) == str(account_id):
             attributes = account.get('attributes', {})
             if isinstance(attributes, Mapping):
-                currency = attributes.get('currency_code') or attributes.get('native_currency_code')
+                attributes_map = cast('Mapping[str, object]', attributes)
+                currency = attributes_map.get('currency_code') or attributes_map.get('native_currency_code')
                 if currency:
                     return str(currency)
             break
@@ -74,7 +76,8 @@ def _match_account_number(account_number: str, accounts: list[dict[str, object]]
     for account in accounts:
         attributes = account.get('attributes', {})
         if isinstance(attributes, Mapping):
-            acct_num = str(attributes.get('account_number') or '').strip()
+            attributes_map = cast('Mapping[str, object]', attributes)
+            acct_num = str(attributes_map.get('account_number') or '').strip()
             if acct_num and acct_num == candidate:
                 return str(account.get('id'))
     return None
