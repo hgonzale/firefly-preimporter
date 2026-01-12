@@ -262,6 +262,33 @@ def test_prompt_account_id_preview_command(
     assert 'Coffee' in output
 
 
+def test_preview_transactions_fit_terminal_width(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    terminal_width = 80
+    monkeypatch.setattr(
+        cli.shutil,
+        'get_terminal_size',
+        lambda fallback: os.terminal_size((terminal_width, 20)),
+    )
+    transactions = [
+        Transaction(
+            transaction_id='TX' * 20,
+            date='2024-01-01',
+            description='Very long description that should be truncated for preview output.',
+            amount='-1234.56',
+        ),
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=transactions)
+    cli._preview_transactions(result, limit=1)
+    output_lines = [line for line in capsys.readouterr().out.splitlines() if ' | ' in line]
+    assert output_lines
+    assert all(len(line) <= terminal_width for line in output_lines)
+    assert '...' in output_lines[-1]
+
+
 def test_prompt_account_id_skip_command(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
     accounts: list[dict[str, object]] = [{'id': '1', 'attributes': {'name': 'Checking'}}]
     monkeypatch.setattr('builtins.input', lambda _prompt: 's')

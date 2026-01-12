@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sys
 from collections.abc import Callable, Mapping
 from datetime import datetime
@@ -118,6 +119,52 @@ def _make_emitter(args: argparse.Namespace) -> FireflyEmitter:
     return _emitter
 
 
+def _truncate_preview_field(value: str, width: int) -> str:
+    """Return a preview field truncated to ``width`` characters."""
+
+    if width <= 0:
+        return ''
+    if len(value) <= width:
+        return value
+    if width <= 3:
+        return value[:width]
+    return f'{value[: width - 3]}...'
+
+
+def _fit_preview_widths(widths: dict[str, int], max_total: int) -> dict[str, int]:
+    """Shrink preview widths to fit within ``max_total`` characters."""
+
+    adjusted = dict(widths)
+    overflow = sum(adjusted.values()) - max_total
+    if overflow <= 0:
+        return adjusted
+
+    shrink_order = ('desc', 'txid', 'date', 'amount')
+    min_width = 4
+    for key in shrink_order:
+        if overflow <= 0:
+            break
+        current = adjusted[key]
+        if current > min_width:
+            reducible = current - min_width
+            reduction = min(reducible, overflow)
+            adjusted[key] = current - reduction
+            overflow -= reduction
+
+    if overflow > 0:
+        for key in shrink_order:
+            if overflow <= 0:
+                break
+            current = adjusted[key]
+            if current > 1:
+                reducible = current - 1
+                reduction = min(reducible, overflow)
+                adjusted[key] = current - reduction
+                overflow -= reduction
+
+    return adjusted
+
+
 def _preview_transactions(result: ProcessingResult, *, limit: int = 3) -> None:
     """Print a preview of the first few transactions for the current result."""
 
@@ -132,26 +179,46 @@ def _preview_transactions(result: ProcessingResult, *, limit: int = 3) -> None:
     id_width = max(len(headers[1]), *(len(txn.transaction_id) for txn in preview))
     desc_width = max(len(headers[2]), *(len(txn.description) for txn in preview))
     amount_width = max(len(headers[3]), *(len(txn.amount) for txn in preview))
-    line_fmt = f'  {{date:<{date_width}}} | {{txid:<{id_width}}} | {{desc:<{desc_width}}} | {{amount:>{amount_width}}}'
+    indent = '  '
+    sep = ' | '
+    terminal_width = shutil.get_terminal_size(fallback=(120, 20)).columns
+    max_payload_width = max(0, terminal_width - len(indent) - len(sep) * 3)
+    widths = _fit_preview_widths(
+        {
+            'date': date_width,
+            'txid': id_width,
+            'desc': desc_width,
+            'amount': amount_width,
+        },
+        max_payload_width,
+    )
+    line_fmt = (
+        f'{indent}{{date:<{widths["date"]}}}{sep}'
+        f'{{txid:<{widths["txid"]}}}{sep}'
+        f'{{desc:<{widths["desc"]}}}{sep}'
+        f'{{amount:>{widths["amount"]}}}'
+    )
 
     print('Previewing first transactions:')
-    print(
-        line_fmt.format(
-            date=headers[0],
-            txid=headers[1],
-            desc=headers[2],
-            amount=headers[3],
-        ),
+    header_line = line_fmt.format(
+        date=_truncate_preview_field(headers[0], widths['date']),
+        txid=_truncate_preview_field(headers[1], widths['txid']),
+        desc=_truncate_preview_field(headers[2], widths['desc']),
+        amount=_truncate_preview_field(headers[3], widths['amount']),
     )
+    if terminal_width > 0:
+        header_line = header_line[:terminal_width]
+    print(header_line)
     for txn in preview:
-        print(
-            line_fmt.format(
-                date=txn.date,
-                txid=txn.transaction_id,
-                desc=txn.description,
-                amount=txn.amount,
-            ),
+        line = line_fmt.format(
+            date=_truncate_preview_field(txn.date, widths['date']),
+            txid=_truncate_preview_field(txn.transaction_id, widths['txid']),
+            desc=_truncate_preview_field(txn.description, widths['desc']),
+            amount=_truncate_preview_field(txn.amount, widths['amount']),
         )
+        if terminal_width > 0:
+            line = line[:terminal_width]
+        print(line)
 
 
 def _prompt_account_id(result: ProcessingResult, accounts: list[dict[str, object]]) -> str:
