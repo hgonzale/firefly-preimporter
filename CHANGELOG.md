@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Account prompts now insert a blank line after each selection to visually separate files during uploads.
+- Account selection prompts now use subtle ANSI coloring in interactive terminals to improve readability.
+
 ## [0.3.2] - 2026-01-12
 
 ### Changed

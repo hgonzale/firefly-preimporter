@@ -48,6 +48,36 @@ if not LOGGER.handlers:
 LOGGER.setLevel(logging.INFO)
 LOGGER.propagate = False
 
+ANSI_STYLES: dict[str, str] = {
+    'reset': '\x1b[0m',
+    'bold': '\x1b[1m',
+    'dim': '\x1b[2m',
+    'cyan': '\x1b[36m',
+    'green': '\x1b[32m',
+    'yellow': '\x1b[33m',
+    'red': '\x1b[31m',
+}
+
+
+def _color_enabled(stream: object | None = None) -> bool:
+    if os.environ.get('NO_COLOR'):
+        return False
+    target = stream or sys.stdout
+    isatty = getattr(target, 'isatty', None)
+    if isatty is None:
+        return False
+    try:
+        return bool(isatty())
+    except Exception:  # noqa: BLE001 - defensive for odd stream implementations
+        return False
+
+
+def _style_text(text: str, *styles: str, enabled: bool) -> str:
+    if not enabled or not styles:
+        return text
+    prefix = ''.join(ANSI_STYLES[style] for style in styles)
+    return f'{prefix}{text}{ANSI_STYLES["reset"]}'
+
 
 def _get_asset_accounts(args: argparse.Namespace, settings: FireflySettings) -> list[dict[str, object]]:
     accounts = getattr(args, 'cached_asset_accounts', None)
@@ -169,7 +199,8 @@ def _preview_transactions(result: ProcessingResult, *, limit: int = 3) -> None:
     """Print a preview of the first few transactions for the current result."""
 
     if not result.transactions:
-        print('No transactions available for preview.')
+        color = _color_enabled()
+        print(_style_text('No transactions available for preview.', 'yellow', enabled=color))
         return
 
     sorted_transactions = sorted(result.transactions, key=lambda txn: txn.date)
@@ -199,7 +230,8 @@ def _preview_transactions(result: ProcessingResult, *, limit: int = 3) -> None:
         f'{{amount:>{widths["amount"]}}}'
     )
 
-    print('Previewing first transactions:')
+    color = _color_enabled()
+    print(_style_text('Previewing first transactions:', 'cyan', 'bold', enabled=color))
     header_line = line_fmt.format(
         date=_truncate_preview_field(headers[0], widths['date']),
         txid=_truncate_preview_field(headers[1], widths['txid']),
@@ -221,21 +253,19 @@ def _preview_transactions(result: ProcessingResult, *, limit: int = 3) -> None:
         print(line)
 
 
-def _prompt_account_id(
-    result: ProcessingResult,
-    accounts: list[dict[str, object]],
-    *,
-    add_separator: bool = False,
-) -> str:
+def _prompt_account_id(result: ProcessingResult, accounts: list[dict[str, object]]) -> str:
     """Prompt the user to choose an account id using the fetched ``accounts`` list."""
 
-    if add_separator:
-        print()
-    print('Available asset accounts:')
+    color = _color_enabled()
+    header = _style_text('Available asset accounts:', 'cyan', 'bold', enabled=color)
+    print(header)
     for idx, account in enumerate(accounts, start=1):
-        print(f'  [{idx}] {format_account_label(account)}')
+        index_label = _style_text(f'[{idx}]', 'cyan', enabled=color)
+        print(f'  {index_label} {format_account_label(account)}')
 
-    prompt = f'Select account for {result.job.source_path.name} (number/id, "p" to preview, "s" to skip): '
+    file_label = _style_text(result.job.source_path.name, 'cyan', 'bold', enabled=color)
+    hint = _style_text('(number/id, "p" to preview, "s" to skip)', 'dim', enabled=color)
+    prompt = f'Select account for {file_label} {hint}: '
     while True:
         response = input(prompt).strip()
         if not response:
@@ -250,13 +280,19 @@ def _prompt_account_id(
             selected = int(response)
             if 1 <= selected <= len(accounts):
                 selection = accounts[selected - 1]
-                print(f'Selected: {format_account_label(selection)}')
+                selected_label = _style_text('Selected:', 'green', 'bold', enabled=color)
+                print(f'{selected_label} {format_account_label(selection)}')
+                print()
                 return str(selection.get('id'))
         for account in accounts:
             if str(account.get('id')) == response:
-                print(f'Selected: {format_account_label(account)}')
+                selected_label = _style_text('Selected:', 'green', 'bold', enabled=color)
+                print(f'{selected_label} {format_account_label(account)}')
+                print()
                 return str(account.get('id'))
-        print('Invalid selection, try again.', file=sys.stderr)
+        error_color = _color_enabled(sys.stderr)
+        error_message = _style_text('Invalid selection, try again.', 'yellow', enabled=error_color)
+        print(error_message, file=sys.stderr)
 
 
 def _resolve_account_id(
@@ -265,7 +301,6 @@ def _resolve_account_id(
     settings: FireflySettings | None,
     *,
     require_resolution: bool = True,
-    add_separator: bool = False,
 ) -> str | None:
     """Return the best account id candidate for the current job."""
     if result.account_id:
@@ -292,7 +327,7 @@ def _resolve_account_id(
         if settings is None:
             raise ValueError('Upload requires Firefly settings for account selection')
         accounts = _get_asset_accounts(args, settings)
-        return _prompt_account_id(result, accounts, add_separator=add_separator)
+        return _prompt_account_id(result, accounts)
     return None
 
 
@@ -468,7 +503,6 @@ def main(argv: list[str] | None = None) -> int:
     combined_transactions: list[Transaction] = []
     stdout_payload: str | None = None
     require_account_resolution = upload_requested
-    prompt_count = 0
     for job in jobs:
         try:
             result = _process_job(job)
@@ -491,18 +525,12 @@ def main(argv: list[str] | None = None) -> int:
                 _emit(f'Warning: {warning}', args, error=True)
             account_id: str | None = None
             if settings is not None:
-                should_prompt = (
-                    require_account_resolution and not result.account_id and not getattr(args, 'account_id', None)
-                )
                 account_id = _resolve_account_id(
                     result,
                     args,
                     settings,
                     require_resolution=require_account_resolution,
-                    add_separator=prompt_count > 0 if should_prompt else False,
                 )
-                if should_prompt:
-                    prompt_count += 1
             elif getattr(args, 'account_id', None):
                 account_id = str(args.account_id)
             if payload_builder and account_id and settings is not None:

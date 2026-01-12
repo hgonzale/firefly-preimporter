@@ -244,7 +244,7 @@ def test_prompt_account_id_accepts_id(monkeypatch: pytest.MonkeyPatch, dummy_job
     assert cli._prompt_account_id(result, accounts) == '99'
 
 
-def test_prompt_account_id_adds_separator_before_prompt(
+def test_prompt_account_id_adds_separator_after_selection(
     monkeypatch: pytest.MonkeyPatch,
     dummy_job: ProcessingJob,
     capsys: pytest.CaptureFixture[str],
@@ -252,10 +252,10 @@ def test_prompt_account_id_adds_separator_before_prompt(
     accounts: list[dict[str, object]] = [{'id': '1', 'attributes': {'name': 'Checking'}}]
     monkeypatch.setattr('builtins.input', lambda _prompt: '1')
     result = ProcessingResult(job=dummy_job, transactions=[])
-    cli._prompt_account_id(result, accounts, add_separator=True)
+    cli._prompt_account_id(result, accounts)
     output_lines = capsys.readouterr().out.splitlines()
-    assert output_lines[0] == ''
-    assert output_lines[1] == 'Available asset accounts:'
+    selected_idx = next(idx for idx, line in enumerate(output_lines) if line.startswith('Selected:'))
+    assert output_lines[selected_idx + 1] == ''
 
 
 def test_prompt_account_id_preview_command(
