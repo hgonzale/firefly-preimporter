@@ -221,14 +221,19 @@ def _preview_transactions(result: ProcessingResult, *, limit: int = 3) -> None:
         print(line)
 
 
-def _prompt_account_id(result: ProcessingResult, accounts: list[dict[str, object]]) -> str:
+def _prompt_account_id(
+    result: ProcessingResult,
+    accounts: list[dict[str, object]],
+    *,
+    add_separator: bool = False,
+) -> str:
     """Prompt the user to choose an account id using the fetched ``accounts`` list."""
 
+    if add_separator:
+        print()
     print('Available asset accounts:')
     for idx, account in enumerate(accounts, start=1):
         print(f'  [{idx}] {format_account_label(account)}')
-        if idx != len(accounts):
-            print()
 
     prompt = f'Select account for {result.job.source_path.name} (number/id, "p" to preview, "s" to skip): '
     while True:
@@ -260,6 +265,7 @@ def _resolve_account_id(
     settings: FireflySettings | None,
     *,
     require_resolution: bool = True,
+    add_separator: bool = False,
 ) -> str | None:
     """Return the best account id candidate for the current job."""
     if result.account_id:
@@ -286,7 +292,7 @@ def _resolve_account_id(
         if settings is None:
             raise ValueError('Upload requires Firefly settings for account selection')
         accounts = _get_asset_accounts(args, settings)
-        return _prompt_account_id(result, accounts)
+        return _prompt_account_id(result, accounts, add_separator=add_separator)
     return None
 
 
@@ -462,6 +468,7 @@ def main(argv: list[str] | None = None) -> int:
     combined_transactions: list[Transaction] = []
     stdout_payload: str | None = None
     require_account_resolution = upload_requested
+    prompt_count = 0
     for job in jobs:
         try:
             result = _process_job(job)
@@ -484,12 +491,18 @@ def main(argv: list[str] | None = None) -> int:
                 _emit(f'Warning: {warning}', args, error=True)
             account_id: str | None = None
             if settings is not None:
+                should_prompt = (
+                    require_account_resolution and not result.account_id and not getattr(args, 'account_id', None)
+                )
                 account_id = _resolve_account_id(
                     result,
                     args,
                     settings,
                     require_resolution=require_account_resolution,
+                    add_separator=prompt_count > 0 if should_prompt else False,
                 )
+                if should_prompt:
+                    prompt_count += 1
             elif getattr(args, 'account_id', None):
                 account_id = str(args.account_id)
             if payload_builder and account_id and settings is not None:

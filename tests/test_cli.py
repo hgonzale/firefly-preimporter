@@ -189,7 +189,7 @@ def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: Pr
         return [{'id': '123', 'attributes': {'name': 'Checking'}}]
 
     monkeypatch.setattr(cli, 'fetch_asset_accounts', fake_fetch)
-    monkeypatch.setattr(cli, '_prompt_account_id', lambda _job, _accounts: '9001')
+    monkeypatch.setattr(cli, '_prompt_account_id', lambda _job, _accounts, **_kwargs: '9001')
 
     def fake_upload_write_output(_result: ProcessingResult, *, output_path: Path | str | None = None) -> str:
         _ = output_path
@@ -244,22 +244,18 @@ def test_prompt_account_id_accepts_id(monkeypatch: pytest.MonkeyPatch, dummy_job
     assert cli._prompt_account_id(result, accounts) == '99'
 
 
-def test_prompt_account_id_adds_spacing_between_accounts(
+def test_prompt_account_id_adds_separator_before_prompt(
     monkeypatch: pytest.MonkeyPatch,
     dummy_job: ProcessingJob,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    accounts: list[dict[str, object]] = [
-        {'id': '1', 'attributes': {'name': 'Checking'}},
-        {'id': '2', 'attributes': {'name': 'Savings'}},
-    ]
+    accounts: list[dict[str, object]] = [{'id': '1', 'attributes': {'name': 'Checking'}}]
     monkeypatch.setattr('builtins.input', lambda _prompt: '1')
     result = ProcessingResult(job=dummy_job, transactions=[])
-    cli._prompt_account_id(result, accounts)
+    cli._prompt_account_id(result, accounts, add_separator=True)
     output_lines = capsys.readouterr().out.splitlines()
-    account_lines = [idx for idx, line in enumerate(output_lines) if line.strip().startswith('[')]
-    assert len(account_lines) == 2
-    assert output_lines[account_lines[0] + 1] == ''
+    assert output_lines[0] == ''
+    assert output_lines[1] == 'Available asset accounts:'
 
 
 def test_prompt_account_id_preview_command(
@@ -440,7 +436,7 @@ def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, du
     monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
     prompt_calls = {'count': 0}
 
-    def fake_prompt(_job: ProcessingJob, _accounts: list[dict[str, object]]) -> str:
+    def fake_prompt(_job: ProcessingJob, _accounts: list[dict[str, object]], **_kwargs: object) -> str:
         prompt_calls['count'] += 1
         return f'id-{prompt_calls["count"]}'
 
@@ -497,7 +493,7 @@ def test_main_reports_dry_run_upload(
         return accounts
 
     monkeypatch.setattr(cli, 'fetch_asset_accounts', fake_fetch)
-    monkeypatch.setattr(cli, '_prompt_account_id', lambda _job, _accounts: '1')
+    monkeypatch.setattr(cli, '_prompt_account_id', lambda _job, _accounts, **_kwargs: '1')
     monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'payload')  # noqa: ARG005
 
     log_stream = StringIO()
@@ -993,7 +989,7 @@ def test_main_handles_user_skip(
         cli, 'fetch_asset_accounts', lambda _settings: [{'id': '1', 'attributes': {'name': 'Checking'}}]
     )
 
-    def fake_prompt(_result: ProcessingResult, _accounts: list[dict[str, object]]) -> str:
+    def fake_prompt(_result: ProcessingResult, _accounts: list[dict[str, object]], **_kwargs: object) -> str:
         raise cli.SkipJobError('Skipping test file')
 
     monkeypatch.setattr(cli, '_prompt_account_id', fake_prompt)

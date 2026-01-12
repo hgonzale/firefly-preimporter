@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Account prompts now add a blank separator between files instead of spacing out the account list.
+
 ## [0.3.1] - 2026-01-12
 
 ### Changed
