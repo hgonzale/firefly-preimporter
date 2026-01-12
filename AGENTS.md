@@ -36,7 +36,7 @@
 
 - Keep commits scoped and written in imperative mood (e.g., “Add Firefly uploader”). Reference issue IDs when relevant.
 - PRs should describe the change, note any new configuration knobs, and list verification commands (lint, types, tests). Include screenshots or log snippets if the change affects CLI output or user workflows.
-- If the change modifies user-facing behavior, tooling, or workflows, append a concise entry to `CHANGELOG.md` under the current `Unreleased` section. When cutting a release tag (e.g., `v1.2.3`), replace the top `Unreleased` header with the tag’s version and release date.
+- If the change modifies user-facing behavior, tooling, or workflows, append a concise entry to `CHANGELOG.md` under the current `Unreleased` section. When cutting a release tag (e.g., `v1.2.3`), replace the top `Unreleased` header with the tag’s version and release date. Tag format is strictly `vX.Y.Z`; do not use unprefixed tags.
 
 ## Configuration & Security Tips
 
