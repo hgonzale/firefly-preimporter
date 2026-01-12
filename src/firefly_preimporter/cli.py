@@ -227,6 +227,8 @@ def _prompt_account_id(result: ProcessingResult, accounts: list[dict[str, object
     print('Available asset accounts:')
     for idx, account in enumerate(accounts, start=1):
         print(f'  [{idx}] {format_account_label(account)}')
+        if idx != len(accounts):
+            print()
 
     prompt = f'Select account for {result.job.source_path.name} (number/id, "p" to preview, "s" to skip): '
     while True:

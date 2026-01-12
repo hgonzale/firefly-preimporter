@@ -41,7 +41,11 @@ def _format_firefly_status(payload: FireflyPayload) -> str:
     if len(description_full) > len(truncated):
         truncated = f'{truncated}\u2026'
     description = truncated
-    return f'{date} "{description}"'.strip()
+    account_id: int | None = None
+    if split:
+        account_id = split.source_id if split.source_id is not None else split.destination_id
+    account_suffix = f' (account {account_id})' if account_id is not None else ''
+    return f'{date} "{description}"{account_suffix}'.strip()
 
 
 def _emit_response_snippet(

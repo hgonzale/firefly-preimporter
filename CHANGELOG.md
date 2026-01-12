@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Account selection prompts now insert blank lines between account entries, making multi-file uploads easier to scan.
+- Firefly upload status logs now include the resolved account id alongside each transaction preview.
+
 ## [0.3.0] - 2026-01-12
 
 ### Fixed

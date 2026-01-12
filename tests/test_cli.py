@@ -244,6 +244,24 @@ def test_prompt_account_id_accepts_id(monkeypatch: pytest.MonkeyPatch, dummy_job
     assert cli._prompt_account_id(result, accounts) == '99'
 
 
+def test_prompt_account_id_adds_spacing_between_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    accounts: list[dict[str, object]] = [
+        {'id': '1', 'attributes': {'name': 'Checking'}},
+        {'id': '2', 'attributes': {'name': 'Savings'}},
+    ]
+    monkeypatch.setattr('builtins.input', lambda _prompt: '1')
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    cli._prompt_account_id(result, accounts)
+    output_lines = capsys.readouterr().out.splitlines()
+    account_lines = [idx for idx, line in enumerate(output_lines) if line.strip().startswith('[')]
+    assert len(account_lines) == 2
+    assert output_lines[account_lines[0] + 1] == ''
+
+
 def test_prompt_account_id_preview_command(
     monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -268,10 +286,15 @@ def test_preview_transactions_fit_terminal_width(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     terminal_width = 80
+
+    def fake_terminal_size(fallback: object) -> os.terminal_size:
+        _ = fallback
+        return os.terminal_size((terminal_width, 20))
+
     monkeypatch.setattr(
         cli.shutil,
         'get_terminal_size',
-        lambda fallback: os.terminal_size((terminal_width, 20)),
+        fake_terminal_size,
     )
     transactions = [
         Transaction(

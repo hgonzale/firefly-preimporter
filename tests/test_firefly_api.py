@@ -181,7 +181,7 @@ def test_upload_firefly_payloads_success(monkeypatch: pytest.MonkeyPatch) -> Non
     exit_code = upload_firefly_payloads([payload], _settings(), emit=emit)
     assert exit_code == 0
     assert called == [payload.to_dict()]
-    assert any('Firefly upload 2025-01-01 "Coffee" - done' in msg for msg in messages)
+    assert any('Firefly upload 2025-01-01 "Coffee" (account 1) - done' in msg for msg in messages)
 
 
 def test_upload_firefly_payloads_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -379,7 +379,7 @@ def test_format_firefly_status_truncates_description() -> None:
     )
     label = firefly_api._format_firefly_status(payload)
     assert label.startswith('2025-01-01 "This is a very')
-    assert label.endswith('…"')
+    assert label.endswith('…" (account 1)')
 
 
 def test_format_firefly_status_handles_missing_transactions() -> None:

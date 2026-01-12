@@ -30,7 +30,7 @@
 - Framework: `pytest` with `pytest-cov`. Tests live in `tests/` and should be named `test_<module>.py`.
 - All new features must include new tests that cover the added behavior.
 - Assertions should be precise; mock network calls (FiDI/Firefly) using `unittest.mock`.
-- For every task, execute the full tox pipeline (`tox -e lint`, `tox -e format`, `tox -e types`, `tox -e py311`). Use targeted `uv run pytest tests/<file>.py` only for quick iteration, but finish by re-running tox.
+- For every task, execute the full tox pipeline (`tox -e lint`, `tox -e format`, `tox -e types`, `tox -e py311`). Use targeted `uv run pytest tests/<file>.py` only for quick iteration, but finish by re-running tox. Treat each feature as a task: run the full pipeline after implementing each feature set.
 
 ## Commit & Pull Request Guidelines
 
