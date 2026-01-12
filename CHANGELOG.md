@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-01-12
+
+### Fixed
+
+- Transaction preview rows now truncate columns to fit the terminal width, preventing line wrapping during uploads.
+
 ## [0.2.3] - 2025-12-14
 
 ### Changed

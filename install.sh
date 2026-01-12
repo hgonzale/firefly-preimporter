@@ -21,20 +21,22 @@ run_uv() {
 
 run_uv build --wheel --sdist >/dev/null
 
-pkg_version="$(
+wheel_path="$(
   cd "$repo_dir"
   python - <<'PY'
-import pathlib, sys
-if sys.version_info < (3, 11):
-    raise SystemExit("Python 3.11+ is required to parse pyproject.toml")
-data = pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
-import tomllib
-info = tomllib.loads(data)
-print(info["project"]["version"])
+from pathlib import Path
+
+wheels = sorted(
+    Path("dist").glob("firefly_preimporter-*.whl"),
+    key=lambda path: path.stat().st_mtime,
+    reverse=True,
+)
+if not wheels:
+    raise SystemExit("No firefly_preimporter wheel found in dist/")
+print(wheels[0].resolve())
 PY
 )"
 
-wheel_path="${repo_dir}/dist/firefly_preimporter-${pkg_version}-py3-none-any.whl"
 if [[ ! -f "${wheel_path}" ]]; then
   echo "Wheel not found at ${wheel_path}. Run 'uv build' manually and retry." >&2
   exit 1
