@@ -11,6 +11,9 @@ from firefly_preimporter.models import (
     Transaction,
 )
 
+# Firefly III API constraints
+MAX_DESCRIPTION_LENGTH = 255  # Firefly III database schema limit for transaction descriptions
+
 
 def _positive_amount(amount: str) -> tuple[str, str] | None:
     """Return (type, amount) tuple based on the sign of ``amount``."""
@@ -27,7 +30,7 @@ def _positive_amount(amount: str) -> tuple[str, str] | None:
 
 def _sanitize_description(description: str) -> str:
     text = description.strip() or 'Imported transaction'
-    return text[:255]
+    return text[:MAX_DESCRIPTION_LENGTH]
 
 
 class FireflyPayloadBuilder:

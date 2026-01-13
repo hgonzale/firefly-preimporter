@@ -12,6 +12,11 @@ from firefly_preimporter.models import ProcessingJob, ProcessingResult, Transact
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from collections.abc import Iterable, Iterator
+
+# Transaction ID generation
+TRANSACTION_ID_LENGTH = 15  # Truncated SHA256 hash length (15 hex chars = 60 bits)
+# Note: Birthday paradox collision probability ~50% at 2^30 (~1 billion) transactions
+
 REQUIRED_COLUMNS = ('date', 'description', 'amount')
 COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
     'date': (
@@ -29,7 +34,11 @@ COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
 OPTIONAL_COLUMNS: dict[str, tuple[str, ...]] = {
     'transaction_id': ('transaction id', 'transaction_id', 'reference number', 'reference', 'reference_number'),
 }
-DATE_FORMATS = ('%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d')
+DATE_FORMATS = (
+    '%m/%d/%Y',  # US: 01/31/2024
+    '%m/%d/%y',  # US short: 01/31/24
+    '%Y-%m-%d',  # ISO: 2024-01-31
+)
 
 
 def normalize_date(value: str) -> str:
@@ -41,7 +50,8 @@ def normalize_date(value: str) -> str:
             return datetime.strptime(cleaned, fmt).strftime('%Y-%m-%d')
         except ValueError:
             continue
-    raise ValueError(f'unrecognized date: {value!r}')
+    supported_examples = 'MM/DD/YYYY, MM/DD/YY, YYYY-MM-DD'
+    raise ValueError(f'Unrecognized date format: {value!r}. Supported formats: {supported_examples}')
 
 
 def normalize_amount(value: str) -> str:
@@ -62,7 +72,7 @@ def generate_transaction_id(date: str, description: str, amount: str) -> str:
     """Build a deterministic transaction identifier from row contents."""
 
     digest = hashlib.sha256(f'{date}{description}{amount}'.encode()).hexdigest()
-    return digest[:15]
+    return digest[:TRANSACTION_ID_LENGTH]
 
 
 def detect_required_columns(header_row: list[str]) -> tuple[dict[str, int], dict[str, int]] | None:
@@ -129,7 +139,11 @@ def iter_transactions(rows: Iterable[list[str]]) -> Iterator[Transaction]:
         )
 
     if column_map is None:
-        raise ValueError('no header row with required columns found')
+        required = ', '.join(REQUIRED_COLUMNS)
+        raise ValueError(
+            f'No header row found with required columns: {required}. '
+            f'Ensure CSV has headers matching or aliased to these column names.'
+        )
 
 
 def process_csv(job: ProcessingJob) -> ProcessingResult:

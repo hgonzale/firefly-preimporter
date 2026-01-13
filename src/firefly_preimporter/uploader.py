@@ -6,15 +6,10 @@ import json
 from typing import TYPE_CHECKING
 
 import requests
+from firefly_preimporter.utils import get_verify_option
 
 if TYPE_CHECKING:  # pragma: no cover
     from firefly_preimporter.config import FireflySettings
-
-
-def _verify_option(settings: FireflySettings) -> bool | str:
-    if settings.ca_cert_path and settings.ca_cert_path.exists():
-        return str(settings.ca_cert_path)
-    return True
 
 
 class FidiUploader:
@@ -54,7 +49,7 @@ class FidiUploader:
             data=data,
             files=files,
             timeout=self.settings.request_timeout,
-            verify=_verify_option(self.settings),
+            verify=get_verify_option(self.settings),
         )
         response.raise_for_status()
         return response
