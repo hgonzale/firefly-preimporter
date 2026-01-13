@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import requests
 from firefly_preimporter.models import FireflyPayload, UploadedGroup
+from firefly_preimporter.utils import get_verify_option
 from requests.exceptions import HTTPError, RequestException
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
@@ -16,6 +17,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing helpers only
 
     from firefly_preimporter.config import FireflySettings
     from requests import Session
+
+# Firefly III API constants
+DEFAULT_PAGE_SIZE = 50  # Firefly III API default pagination limit
 
 
 class FireflyEmitter(Protocol):
@@ -74,12 +78,6 @@ def _is_duplicate_error(response: requests.Response | None) -> bool:
     return 'duplicate of transaction' in text.lower()
 
 
-def _verify_option(settings: FireflySettings) -> bool | str:
-    if settings.ca_cert_path and settings.ca_cert_path.exists():
-        return str(settings.ca_cert_path)
-    return True
-
-
 def fetch_asset_accounts(
     settings: FireflySettings,
     *,
@@ -90,7 +88,7 @@ def fetch_asset_accounts(
     http = session or requests.Session()
     base_url = settings.firefly_api_base.rstrip('/')
     url: str | None = f'{base_url}/accounts'
-    params: dict[str, str] | None = {'type': 'asset', 'limit': '50', 'page': '1'}
+    params: dict[str, str] | None = {'type': 'asset', 'limit': str(DEFAULT_PAGE_SIZE), 'page': '1'}
     headers = {
         'Authorization': f'Bearer {settings.personal_access_token}',
         'Accept': 'application/json',
@@ -103,7 +101,7 @@ def fetch_asset_accounts(
             headers=headers,
             params=params,
             timeout=settings.request_timeout,
-            verify=_verify_option(settings),
+            verify=get_verify_option(settings),
         )
         response.raise_for_status()
         payload = cast('dict[str, Any]', response.json())
@@ -215,7 +213,7 @@ def _ensure_tag_exists(settings: FireflySettings, tag: str) -> None:
         },
         json=body,
         timeout=settings.request_timeout,
-        verify=_verify_option(settings),
+        verify=get_verify_option(settings),
     )
     try:
         response.raise_for_status()
@@ -249,7 +247,7 @@ def _append_tag_to_group(
         },
         json={'transactions': transactions_payload},
         timeout=settings.request_timeout,
-        verify=_verify_option(settings),
+        verify=get_verify_option(settings),
     )
     response.raise_for_status()
     return response
@@ -309,7 +307,7 @@ def upload_transactions(
         headers=headers,
         json=payload_dict,
         timeout=settings.request_timeout,
-        verify=_verify_option(settings),
+        verify=get_verify_option(settings),
     )
     response.raise_for_status()
     return response

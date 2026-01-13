@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+import stat
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH: Path = Path.home() / '.local/etc/firefly_import.toml'
 """Default location for the user provided TOML configuration file."""
@@ -116,6 +120,27 @@ def load_settings(path: Path | None = None) -> FireflySettings:
     config_path = (path or DEFAULT_CONFIG_PATH).expanduser()
     if not config_path.is_file():
         raise FileNotFoundError(f'Configuration file not found: {config_path}')
+
+    # Check file permissions (Unix-like systems only)
+    try:
+        file_stat = config_path.stat()
+        if file_stat.st_mode & stat.S_IROTH:
+            LOGGER.warning(
+                'Config file %s is world-readable and may contain sensitive tokens. '
+                'Consider restricting permissions with: chmod 600 %s',
+                config_path,
+                config_path,
+            )
+        if file_stat.st_mode & stat.S_IRGRP:
+            LOGGER.warning(
+                'Config file %s is group-readable and may contain sensitive tokens. '
+                'Consider restricting permissions with: chmod 600 %s',
+                config_path,
+                config_path,
+            )
+    except (OSError, AttributeError):
+        # OSError: stat failed, AttributeError: Windows doesn't have st_mode
+        pass
 
     with config_path.open('rb') as handle:
         overrides = tomllib.load(handle)

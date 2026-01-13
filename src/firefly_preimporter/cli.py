@@ -48,6 +48,9 @@ if not LOGGER.handlers:
 LOGGER.setLevel(logging.INFO)
 LOGGER.propagate = False
 
+# UI formatting constants
+ELLIPSIS_WIDTH = 3  # Width of "..." truncation indicator
+
 ANSI_STYLES: dict[str, str] = {
     'reset': '\x1b[0m',
     'bold': '\x1b[1m',
@@ -156,9 +159,9 @@ def _truncate_preview_field(value: str, width: int) -> str:
         return ''
     if len(value) <= width:
         return value
-    if width <= 3:
+    if width <= ELLIPSIS_WIDTH:
         return value[:width]
-    return f'{value[: width - 3]}...'
+    return f'{value[: width - ELLIPSIS_WIDTH]}...'
 
 
 def _fit_preview_widths(widths: dict[str, int], max_total: int) -> dict[str, int]:

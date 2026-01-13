@@ -25,6 +25,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing helpers only
         memo: str | None
         fitid: str | None
 
+# Transaction ID generation
+TRANSACTION_ID_LENGTH = 15  # Truncated SHA256 hash length (15 hex chars = 60 bits)
+
 
 def _iter_ofx_transactions(path: Path) -> Iterator[tuple[str | None, OFXTransaction]]:
     """Yield ``(account_id, transaction)`` tuples extracted via ``ofxtools``."""
@@ -70,7 +73,7 @@ def _transaction_id(date: str, description: str, amount: str, fallback: str | No
     if fallback:
         return fallback
     digest = hashlib.sha256(f'{date}{description}{amount}'.encode()).hexdigest()
-    return digest[:15]
+    return digest[:TRANSACTION_ID_LENGTH]
 
 
 def process_ofx(job: ProcessingJob) -> ProcessingResult:

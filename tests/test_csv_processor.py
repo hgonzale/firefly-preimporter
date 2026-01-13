@@ -39,7 +39,7 @@ def test_process_csv_missing_header(tmp_path: Path) -> None:
     file_path.write_text('no,header,here', encoding='utf-8')
     job = ProcessingJob(source_path=file_path, source_format=SourceFormat.CSV)
 
-    with pytest.raises(ValueError, match='no header'):
+    with pytest.raises(ValueError, match='No header row found'):
         process_csv(job)
 
 
@@ -75,7 +75,7 @@ def test_process_csv_supports_transaction_date_header(tmp_path: Path) -> None:
 
 
 def test_normalize_date_invalid() -> None:
-    with pytest.raises(ValueError, match='unrecognized date'):
+    with pytest.raises(ValueError, match='Unrecognized date format'):
         normalize_date('31/31/2024')
 
 

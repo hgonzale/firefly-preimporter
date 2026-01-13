@@ -410,11 +410,13 @@ def test_emit_response_snippet_handles_long_and_empty() -> None:
 
 
 def test_verify_option_returns_cert_path(tmp_path: Path) -> None:
+    from firefly_preimporter.utils import get_verify_option
+
     cert_path = tmp_path / 'ca.pem'
     cert_path.write_text('cert', encoding='utf-8')
     settings = replace(_settings(), ca_cert_path=cert_path)
 
-    result = firefly_api._verify_option(settings)
+    result = get_verify_option(settings)
 
     assert result == str(cert_path)
 
