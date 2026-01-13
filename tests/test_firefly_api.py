@@ -421,6 +421,34 @@ def test_verify_option_returns_cert_path(tmp_path: Path) -> None:
     assert result == str(cert_path)
 
 
+def test_verify_option_warns_on_missing_cert(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """Test that a warning is logged when CA cert path is configured but file doesn't exist."""
+    from firefly_preimporter.utils import get_verify_option
+
+    missing_cert = tmp_path / 'missing_ca.pem'
+    settings = replace(_settings(), ca_cert_path=missing_cert)
+
+    with caplog.at_level('WARNING'):
+        result = get_verify_option(settings)
+
+    # Should fall back to default verification
+    assert result is True
+    # Should log a warning
+    assert 'CA certificate path configured but file not found' in caplog.text
+    assert str(missing_cert) in caplog.text
+
+
+def test_verify_option_returns_true_when_no_cert_configured() -> None:
+    """Test that default verification is used when no CA cert is configured."""
+    from firefly_preimporter.utils import get_verify_option
+
+    settings = replace(_settings(), ca_cert_path=None)
+
+    result = get_verify_option(settings)
+
+    assert result is True
+
+
 def test_fetch_asset_accounts_handles_non_list_payload() -> None:
     session = Mock(spec=requests.Session)
     response_one = Mock(spec=requests.Response)
