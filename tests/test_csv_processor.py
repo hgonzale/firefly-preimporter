@@ -79,6 +79,46 @@ def test_normalize_date_invalid() -> None:
         normalize_date('31/31/2024')
 
 
+def test_normalize_date_us_format_4_digit_year() -> None:
+    """Test US format with 4-digit year: MM/DD/YYYY."""
+    assert normalize_date('01/31/2024') == '2024-01-31'
+    assert normalize_date('12/25/2023') == '2023-12-25'
+    assert normalize_date('3/5/2022') == '2022-03-05'  # Single digits
+
+
+def test_normalize_date_us_format_2_digit_year() -> None:
+    """Test US format with 2-digit year: MM/DD/YY."""
+    assert normalize_date('01/31/24') == '2024-01-31'
+    assert normalize_date('12/25/23') == '2023-12-25'
+    assert normalize_date('10/10/10') == '2010-10-10'  # Ambiguous but consistent
+
+
+def test_normalize_date_iso_format() -> None:
+    """Test ISO 8601 format: YYYY-MM-DD."""
+    assert normalize_date('2024-01-31') == '2024-01-31'
+    assert normalize_date('2023-12-25') == '2023-12-25'
+    assert normalize_date('2022-03-05') == '2022-03-05'
+
+
+def test_normalize_date_rejects_european_formats() -> None:
+    """Test that European date formats are properly rejected to avoid ambiguity."""
+    # DD/MM/YYYY format should be rejected
+    with pytest.raises(ValueError, match='Unrecognized date format'):
+        normalize_date('31/12/2024')  # December 31, 2024 in EU format
+
+    # DD/MM/YY format should be rejected
+    with pytest.raises(ValueError, match='Unrecognized date format'):
+        normalize_date('31/12/24')  # December 31, 2024 in EU short format
+
+    # DD-MM-YYYY format should be rejected
+    with pytest.raises(ValueError, match='Unrecognized date format'):
+        normalize_date('31-12-2024')
+
+    # DD.MM.YYYY format should be rejected
+    with pytest.raises(ValueError, match='Unrecognized date format'):
+        normalize_date('31.12.2024')
+
+
 def test_normalize_amount_invalid() -> None:
     with pytest.raises(ValueError, match='unrecognized amount'):
         normalize_amount('abc')
