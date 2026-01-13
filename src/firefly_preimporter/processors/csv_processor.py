@@ -38,10 +38,6 @@ DATE_FORMATS = (
     '%m/%d/%Y',  # US: 01/31/2024
     '%m/%d/%y',  # US short: 01/31/24
     '%Y-%m-%d',  # ISO: 2024-01-31
-    '%d/%m/%Y',  # EU: 31/01/2024
-    '%Y/%m/%d',  # Alternative ISO: 2024/01/31
-    '%d-%m-%Y',  # EU dash: 31-01-2024
-    '%d.%m.%Y',  # EU dot: 31.01.2024
 )
 
 
@@ -54,7 +50,7 @@ def normalize_date(value: str) -> str:
             return datetime.strptime(cleaned, fmt).strftime('%Y-%m-%d')
         except ValueError:
             continue
-    supported_examples = 'MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY, DD.MM.YYYY'
+    supported_examples = 'MM/DD/YYYY, MM/DD/YY, YYYY-MM-DD'
     raise ValueError(f'Unrecognized date format: {value!r}. Supported formats: {supported_examples}')
 
 
