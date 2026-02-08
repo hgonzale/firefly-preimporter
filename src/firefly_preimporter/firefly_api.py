@@ -313,16 +313,111 @@ def upload_transactions(
     return response
 
 
+def _fetch_existing_external_ids(
+    settings: FireflySettings,
+    payloads: list[FireflyPayload],
+) -> set[str]:
+    """Pre-fetch external IDs that already exist in Firefly III.
+
+    Queries each target account for transactions within the date range
+    of ``payloads`` and returns the set of ``external_id`` values found.
+    """
+
+    account_ids: set[int] = set()
+    dates: list[str] = []
+    for payload in payloads:
+        for split in payload.transactions:
+            acct = split.source_id if split.source_id is not None else split.destination_id
+            if acct is not None:
+                account_ids.add(acct)
+            if split.date:
+                dates.append(split.date)
+
+    if not account_ids or not dates:
+        return set()
+
+    start_date = min(dates)
+    end_date = max(dates)
+
+    headers = {
+        'Authorization': f'Bearer {settings.personal_access_token}',
+        'Accept': 'application/json',
+    }
+    base_url = settings.firefly_api_base.rstrip('/')
+    existing: set[str] = set()
+
+    for account_id in account_ids:
+        url: str | None = f'{base_url}/accounts/{account_id}/transactions'
+        params: dict[str, str] | None = {
+            'start': start_date,
+            'end': end_date,
+            'limit': '50',
+            'page': '1',
+        }
+        while url:
+            response = requests.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=settings.request_timeout,
+                verify=_verify_option(settings),
+            )
+            response.raise_for_status()
+            body = cast('dict[str, Any]', response.json())
+            raw_data = body.get('data', [])
+            if isinstance(raw_data, list):
+                for entry in raw_data:
+                    if not isinstance(entry, Mapping):
+                        continue
+                    attrs = entry.get('attributes', {})
+                    if not isinstance(attrs, Mapping):
+                        continue
+                    txns = attrs.get('transactions', [])
+                    if not isinstance(txns, list):
+                        continue
+                    for txn in txns:
+                        if isinstance(txn, Mapping):
+                            ext_id = txn.get('external_id')
+                            if isinstance(ext_id, str) and ext_id:
+                                existing.add(ext_id)
+            links = body.get('links', {})
+            if isinstance(links, Mapping):
+                next_url = links.get('next')
+                url = str(next_url) if isinstance(next_url, str) and next_url else None
+            else:
+                url = None
+            params = None
+
+    return existing
+
+
 def upload_firefly_payloads(
     payloads: list[FireflyPayload],
     settings: FireflySettings,
     *,
     emit: FireflyEmitter,
     batch_tag: str | None = None,
+    dry_run: bool = False,
 ) -> int:
+    want_dedup = any(p.error_if_duplicate_hash for p in payloads)
+    known_ids: set[str] = set()
+    if want_dedup:
+        try:
+            known_ids = _fetch_existing_external_ids(settings, payloads)
+        except RequestException as exc:
+            emit(f'Warning: could not pre-fetch duplicates: {exc}', error=True)
+
     uploaded_groups: list[UploadedGroup] = []
     for payload in payloads:
         status_label = _format_firefly_status(payload)
+        if known_ids and payload.transactions:
+            ext_id = payload.transactions[0].external_id
+            if ext_id and ext_id in known_ids:
+                emit(f'Firefly upload {status_label} - duplicate (skipped)')
+                continue
+        if dry_run:
+            emit(f'Firefly upload {status_label} - dry-run (skipped)')
+            continue
         try:
             response = upload_transactions(settings, payload)
         except HTTPError as exc:

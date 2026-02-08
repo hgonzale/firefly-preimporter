@@ -638,11 +638,27 @@ def test_firefly_upload_respects_dry_run(
     )
     monkeypatch.setattr(cli, 'write_output', lambda _result, *, output_path=None: 'csv-data')  # noqa: ARG005
     payload_path = tmp_path / 'firefly.json'
+    upload_kwargs: dict[str, object] = {}
+
+    def fake_upload_firefly_payloads(
+        payloads: list[FireflyPayload],
+        settings: FireflySettings,
+        *,
+        emit: firefly_api.FireflyEmitter,
+        batch_tag: str | None = None,
+        dry_run: bool = False,
+    ) -> int:
+        upload_kwargs['dry_run'] = dry_run
+        _ = (payloads, settings, emit, batch_tag)
+        return 0
+
+    monkeypatch.setattr(cli, 'upload_firefly_payloads', fake_upload_firefly_payloads)
 
     exit_code = cli.main(
         [str(dummy_job.source_path), '--upload', '--dry-run', '--output', str(payload_path)],
     )
     assert exit_code == 0
+    assert upload_kwargs['dry_run'] is True
     data = json.loads(payload_path.read_text(encoding='utf-8'))
     assert isinstance(data, list)
     assert data[0]['transactions'][0]['external_id'] == '1'
@@ -753,9 +769,10 @@ def test_firefly_upload_posts_payload(
         *,
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
+        dry_run: bool = False,
     ) -> int:
         captured_payloads.extend(payloads)
-        _ = (settings, batch_tag)
+        _ = (settings, batch_tag, dry_run)
         emit('Firefly upload 2024-01-01 "Coffee" - done')
         return 0
 
@@ -818,8 +835,9 @@ def test_firefly_upload_logs_response_on_http_error(
         *,
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
+        dry_run: bool = False,
     ) -> int:
-        _ = (payloads, settings, batch_tag)
+        _ = (payloads, settings, batch_tag, dry_run)
         emit('Firefly upload 2024-01-01 "Coffee" - failed', error=True)
         emit('Error uploading payload to Firefly III: 422 Client Error: boom', error=True)
         emit('Firefly response body: {"message":"Invalid payload"}', error=True)
@@ -885,10 +903,11 @@ def test_firefly_upload_from_config_default(
         *,
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
+        dry_run: bool = False,
     ) -> int:
         nonlocal captured_payload
         captured_payload = payloads[0]
-        _ = (settings, batch_tag)
+        _ = (settings, batch_tag, dry_run)
         emit('Firefly upload 2024-01-01 "Coffee" - done')
         return 0
 

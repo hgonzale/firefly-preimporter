@@ -172,6 +172,7 @@ def test_upload_firefly_payloads_success(monkeypatch: pytest.MonkeyPatch) -> Non
         return SimpleNamespace(status_code=200, text='{}', json=lambda: {'data': []})
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload_transactions)
+    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_external_ids', lambda *_a, **_k: set())
     messages: list[str] = []
 
     def emit(message: str, *, error: bool = False, verbose_only: bool = False) -> None:
@@ -197,6 +198,7 @@ def test_upload_firefly_payloads_http_error(monkeypatch: pytest.MonkeyPatch) -> 
         raise http_error
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload_transactions)
+    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_external_ids', lambda *_a, **_k: set())
     messages: list[str] = []
 
     def emit(message: str, *, error: bool = False, verbose_only: bool = False) -> None:
@@ -224,6 +226,7 @@ def test_upload_firefly_payloads_duplicate(monkeypatch: pytest.MonkeyPatch) -> N
         raise http_error
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload_transactions)
+    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_external_ids', lambda *_a, **_k: set())
     messages: list[str] = []
 
     def emit(message: str, *, error: bool = False, verbose_only: bool = False) -> None:
@@ -238,6 +241,7 @@ def test_upload_firefly_payloads_duplicate(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_upload_firefly_payloads_applies_batch_tag(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _make_payload()
+    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_external_ids', lambda *_a, **_k: set())
 
     def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
@@ -555,6 +559,7 @@ def test_upload_firefly_payloads_handles_general_exception(monkeypatch: pytest.M
         raise RuntimeError('boom')
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', boom)
+    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_external_ids', lambda *_a, **_k: set())
     messages: list[str] = []
 
     def emit(message: str, *, error: bool = False, verbose_only: bool = False) -> None:
@@ -570,6 +575,7 @@ def test_upload_firefly_payloads_handles_general_exception(monkeypatch: pytest.M
 
 def test_upload_firefly_payloads_handles_batch_tag_request_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _make_payload()
+    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_external_ids', lambda *_a, **_k: set())
 
     def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
@@ -602,3 +608,89 @@ def test_upload_firefly_payloads_handles_batch_tag_request_exception(monkeypatch
 
     assert exit_code == 1
     assert any('Error uploading payload' in msg for msg in messages)
+
+
+def test_upload_firefly_payloads_skips_client_side_duplicates(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = _make_payload()
+    upload_called = False
+
+    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> None:
+        nonlocal upload_called
+        upload_called = True
+
+    monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload_transactions)
+    monkeypatch.setattr(
+        'firefly_preimporter.firefly_api._fetch_existing_external_ids',
+        lambda *_a, **_k: {'abc'},
+    )
+    messages: list[str] = []
+
+    def emit(message: str, *, error: bool = False, verbose_only: bool = False) -> None:
+        _ = (error, verbose_only)
+        messages.append(message)
+
+    exit_code = upload_firefly_payloads([payload], _settings(), emit=emit)
+
+    assert exit_code == 0
+    assert not upload_called
+    assert any('duplicate (skipped)' in msg for msg in messages)
+
+
+def test_upload_firefly_payloads_skips_dedup_when_duplicates_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    split = replace(_make_split(), error_if_duplicate_hash=False)
+    payload = replace(_make_payload(transactions=[split]), error_if_duplicate_hash=False)
+    fetch_called = False
+
+    def track_fetch(*_args: object, **_kwargs: object) -> set[str]:
+        nonlocal fetch_called
+        fetch_called = True
+        return {'abc'}
+
+    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
+        _ = (settings, payload_arg)
+        return SimpleNamespace(status_code=200, text='{}', json=lambda: {'data': []})
+
+    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_external_ids', track_fetch)
+    monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload_transactions)
+
+    exit_code = upload_firefly_payloads([payload], _settings(), emit=lambda *_a, **_k: None)
+
+    assert exit_code == 0
+    assert not fetch_called
+
+
+def test_fetch_existing_external_ids_collects_ids() -> None:
+    split = _make_split()
+    payload = _make_payload(transactions=[split])
+    session = Mock(spec=requests.Session)
+    response = Mock(spec=requests.Response)
+    response.json.return_value = {
+        'data': [
+            {
+                'type': 'transactions',
+                'id': '100',
+                'attributes': {
+                    'transactions': [
+                        {'external_id': 'abc', 'internal_reference': 'abc'},
+                        {'external_id': 'def', 'internal_reference': 'def'},
+                    ],
+                },
+            },
+        ],
+        'links': {'next': None},
+    }
+    response.raise_for_status.return_value = None
+
+    import firefly_preimporter.firefly_api as api
+
+    original_get = requests.get
+
+    def fake_get(url: str, **kwargs: object) -> Mock:
+        _ = (url, kwargs)
+        return response
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(requests, 'get', fake_get)
+        result = api._fetch_existing_external_ids(_settings(), [payload])
+
+    assert result == {'abc', 'def'}

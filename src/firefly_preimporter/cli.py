@@ -568,17 +568,15 @@ def main(argv: list[str] | None = None) -> int:
         if payload_output_path:
             write_firefly_payloads(payloads, payload_output_path, emit=firefly_emit)
         if firefly_upload:
-            if args.dry_run:
-                firefly_emit('Dry-run: skipped Firefly API upload.')
-            else:
-                upload_exit = upload_firefly_payloads(
-                    payloads,
-                    settings,
-                    emit=firefly_emit,
-                    batch_tag=payload_builder.tag,
-                )
-                if upload_exit != 0:
-                    return upload_exit
+            upload_exit = upload_firefly_payloads(
+                payloads,
+                settings,
+                emit=firefly_emit,
+                batch_tag=payload_builder.tag,
+                dry_run=args.dry_run,
+            )
+            if upload_exit != 0:
+                return upload_exit
     elif firefly_upload:
         firefly_emit('No transactions available for Firefly upload.', error=True)
     return 0
