@@ -25,6 +25,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing helpers only
         memo: str | None
         fitid: str | None
 
+
 # Transaction ID generation
 TRANSACTION_ID_LENGTH = 15  # Truncated SHA256 hash length (15 hex chars = 60 bits)
 

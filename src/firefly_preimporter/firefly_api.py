@@ -316,6 +316,8 @@ def upload_transactions(
 def _fetch_existing_external_ids(
     settings: FireflySettings,
     payloads: list[FireflyPayload],
+    *,
+    session: Session | None = None,
 ) -> set[str]:
     """Pre-fetch external IDs that already exist in Firefly III.
 
@@ -339,6 +341,7 @@ def _fetch_existing_external_ids(
     start_date = min(dates)
     end_date = max(dates)
 
+    http = session or requests.Session()
     headers = {
         'Authorization': f'Bearer {settings.personal_access_token}',
         'Accept': 'application/json',
@@ -351,16 +354,16 @@ def _fetch_existing_external_ids(
         params: dict[str, str] | None = {
             'start': start_date,
             'end': end_date,
-            'limit': '50',
+            'limit': str(DEFAULT_PAGE_SIZE),
             'page': '1',
         }
         while url:
-            response = requests.get(
+            response = http.get(
                 url,
                 headers=headers,
                 params=params,
                 timeout=settings.request_timeout,
-                verify=_verify_option(settings),
+                verify=get_verify_option(settings),
             )
             response.raise_for_status()
             body = cast('dict[str, Any]', response.json())

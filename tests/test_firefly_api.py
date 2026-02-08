@@ -18,6 +18,7 @@ from firefly_preimporter.firefly_api import (
     write_firefly_payloads,
 )
 from firefly_preimporter.models import FireflyPayload, FireflyTransactionSplit, UploadedGroup
+from firefly_preimporter.utils import get_verify_option
 from requests import Response
 from requests.exceptions import HTTPError, RequestException
 
@@ -414,7 +415,6 @@ def test_emit_response_snippet_handles_long_and_empty() -> None:
 
 
 def test_verify_option_returns_cert_path(tmp_path: Path) -> None:
-    from firefly_preimporter.utils import get_verify_option
 
     cert_path = tmp_path / 'ca.pem'
     cert_path.write_text('cert', encoding='utf-8')
@@ -427,7 +427,6 @@ def test_verify_option_returns_cert_path(tmp_path: Path) -> None:
 
 def test_verify_option_warns_on_missing_cert(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """Test that a warning is logged when CA cert path is configured but file doesn't exist."""
-    from firefly_preimporter.utils import get_verify_option
 
     missing_cert = tmp_path / 'missing_ca.pem'
     settings = replace(_settings(), ca_cert_path=missing_cert)
@@ -444,7 +443,6 @@ def test_verify_option_warns_on_missing_cert(tmp_path: Path, caplog: pytest.LogC
 
 def test_verify_option_returns_true_when_no_cert_configured() -> None:
     """Test that default verification is used when no CA cert is configured."""
-    from firefly_preimporter.utils import get_verify_option
 
     settings = replace(_settings(), ca_cert_path=None)
 
@@ -614,7 +612,7 @@ def test_upload_firefly_payloads_skips_client_side_duplicates(monkeypatch: pytes
     payload = _make_payload()
     upload_called = False
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> None:
+    def fake_upload_transactions(_settings: FireflySettings, _payload_arg: FireflyPayload) -> None:
         nonlocal upload_called
         upload_called = True
 
@@ -680,17 +678,9 @@ def test_fetch_existing_external_ids_collects_ids() -> None:
         'links': {'next': None},
     }
     response.raise_for_status.return_value = None
+    session.get.return_value = response
 
-    import firefly_preimporter.firefly_api as api
-
-    original_get = requests.get
-
-    def fake_get(url: str, **kwargs: object) -> Mock:
-        _ = (url, kwargs)
-        return response
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(requests, 'get', fake_get)
-        result = api._fetch_existing_external_ids(_settings(), [payload])
+    result = firefly_api._fetch_existing_external_ids(_settings(), [payload], session=session)
 
     assert result == {'abc', 'def'}
+    session.get.assert_called_once()
