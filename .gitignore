@@ -9,3 +9,4 @@ __pycache__/
 uv.lock
 .DS_Store
 dev-notes.md
+homebrew/Formula/

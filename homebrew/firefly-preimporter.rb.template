@@ -1,0 +1,50 @@
+class FireflyPreimporter < Formula
+  include Language::Python::Virtualenv
+
+  desc "Transaction statement preprocessor for Firefly III / FiDI"
+  url "@@URL@@"
+  sha256 "@@SHA256@@"
+  version "@@VERSION@@"
+
+  depends_on "python@3.11"
+
+  # --- begin generated resources ---
+  resource "certifi" do
+    url "https://files.pythonhosted.org/packages/..."
+    sha256 "..."
+  end
+
+  resource "charset-normalizer" do
+    url "https://files.pythonhosted.org/packages/..."
+    sha256 "..."
+  end
+
+  resource "idna" do
+    url "https://files.pythonhosted.org/packages/..."
+    sha256 "..."
+  end
+
+  resource "ofxtools" do
+    url "https://files.pythonhosted.org/packages/..."
+    sha256 "..."
+  end
+
+  resource "requests" do
+    url "https://files.pythonhosted.org/packages/..."
+    sha256 "..."
+  end
+
+  resource "urllib3" do
+    url "https://files.pythonhosted.org/packages/..."
+    sha256 "..."
+  end
+  # --- end generated resources ---
+
+  def install
+    virtualenv_install_with_resources
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/firefly-preimporter --version")
+  end
+end
