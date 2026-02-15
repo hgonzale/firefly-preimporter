@@ -46,10 +46,9 @@ All other FiDI settings (like the JSON roles/mapping) remain under `[default_jso
 ## Installation
 
 ```bash
-./brew-setup.sh
+brew tap honkeandpastrami/tap
+brew install honkeandpastrami/tap/firefly-preimporter
 ```
-
-Fetches the formula from the latest GitHub release, registers the tap, and installs via Homebrew. Re-running upgrades to the latest release.
 
 ## Requirements
 
