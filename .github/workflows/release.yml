@@ -36,10 +36,10 @@ jobs:
         with:
           files: dist/*
 
-      - name: Generate and upload Homebrew formula
+      - name: Update Homebrew tap formula
         if: startsWith(github.ref, 'refs/tags/')
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           TARBALL="dist/firefly_preimporter-${VERSION}.tar.gz"
@@ -51,4 +51,10 @@ jobs:
             -e "s|@@VERSION@@|${VERSION}|" \
             homebrew/firefly-preimporter.rb.template \
             > firefly-preimporter.rb
-          gh release upload "${GITHUB_REF_NAME}" firefly-preimporter.rb
+          gh repo clone honkeandpastrami/homebrew-tap /tmp/homebrew-tap
+          cp firefly-preimporter.rb /tmp/homebrew-tap/Formula/firefly-preimporter.rb
+          git -C /tmp/homebrew-tap config user.name "github-actions[bot]"
+          git -C /tmp/homebrew-tap config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C /tmp/homebrew-tap add Formula/firefly-preimporter.rb
+          git -C /tmp/homebrew-tap commit -m "firefly-preimporter ${GITHUB_REF_NAME}"
+          git -C /tmp/homebrew-tap push
