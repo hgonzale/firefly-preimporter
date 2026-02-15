@@ -51,6 +51,7 @@ jobs:
             -e "s|@@VERSION@@|${VERSION}|" \
             homebrew/firefly-preimporter.rb.template \
             > firefly-preimporter.rb
+          gh auth setup-git
           gh repo clone honkeandpastrami/homebrew-tap /tmp/homebrew-tap
           cp firefly-preimporter.rb /tmp/homebrew-tap/Formula/firefly-preimporter.rb
           git -C /tmp/homebrew-tap config user.name "github-actions[bot]"
