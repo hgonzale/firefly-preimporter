@@ -45,23 +45,22 @@ All other FiDI settings (like the JSON roles/mapping) remain under `[default_jso
 
 ## Installation
 
-Use the bundled script to install or refresh the uv-managed CLI in `~/.local/bin` (it safely ignores any active virtual environment):
-
 ```bash
-./install.sh
+./brew-setup.sh
 ```
+
+Fetches the formula from the latest GitHub release, registers the tap, and installs via Homebrew. Re-running upgrades to the latest release.
 
 ## Requirements
 
-- [uv](https://github.com/astral-sh/uv) (installs dependencies and creates the `.venv` used throughout)
-
-After installing uv, run `uv sync` to set up the virtual environment and project dependencies.
+- [Homebrew](https://brew.sh)
 
 ## Tox commands
 
 ```bash
-tox -e py311   # run the pytest suite with coverage (fails under 85%)
-tox -e lint    # Ruff lint + format checks
-tox -e types   # ty type checking
-tox -e format  # auto-fix style issues with Ruff
+tox -e py311          # run the pytest suite with coverage (fails under 85%)
+tox -e lint           # Ruff lint + format checks
+tox -e types          # ty type checking
+tox -e format         # auto-fix style issues with Ruff
+tox -e brew-resources # refresh PyPI resource blocks in the Homebrew formula template
 ```
