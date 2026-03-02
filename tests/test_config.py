@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from firefly_preimporter.config import FireflySettings, load_settings
+from firefly_preimporter.config import AzureAiSettings, FireflySettings, load_settings
 
 TOKEN_PLACEHOLDER = 'token-' + 'placeholder'
 IMPORT_PLACEHOLDER = 'import-' + 'placeholder'
@@ -109,3 +109,73 @@ def test_load_settings_no_warning_on_secure_permissions(tmp_path: Path, caplog: 
         load_settings(config_file)
 
     assert 'readable' not in caplog.text
+
+
+def test_load_settings_azure_ai_absent_is_none(tmp_path: Path) -> None:
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text('personal_access_token = "abc"\n', encoding='utf-8')
+    settings = load_settings(config_file)
+    assert settings.azure_ai is None
+
+
+def test_load_settings_azure_ai_configured(tmp_path: Path) -> None:
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text(
+        textwrap.dedent(
+            """
+            personal_access_token = "abc"
+
+            [azure_ai]
+            endpoint = "https://my-hub.openai.azure.com/"
+            api_key = "secret-key"
+            model = "gpt-4o"
+            history_days = 90
+            max_history_per_account = 50
+            """
+        ),
+        encoding='utf-8',
+    )
+    settings = load_settings(config_file)
+    assert isinstance(settings.azure_ai, AzureAiSettings)
+    assert settings.azure_ai.endpoint == 'https://my-hub.openai.azure.com/'
+    assert settings.azure_ai.model == 'gpt-4o'
+    assert settings.azure_ai.history_days == 90
+    assert settings.azure_ai.max_history_per_account == 50
+
+
+def test_load_settings_azure_ai_defaults(tmp_path: Path) -> None:
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text(
+        textwrap.dedent(
+            """
+            personal_access_token = "abc"
+
+            [azure_ai]
+            endpoint = "https://my-hub.openai.azure.com/"
+            api_key = "secret-key"
+            """
+        ),
+        encoding='utf-8',
+    )
+    settings = load_settings(config_file)
+    assert settings.azure_ai is not None
+    assert settings.azure_ai.model == 'gpt-4o-mini'
+    assert settings.azure_ai.history_days == 60
+    assert settings.azure_ai.max_history_per_account == 100
+
+
+def test_load_settings_azure_ai_missing_key_is_none(tmp_path: Path) -> None:
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text(
+        textwrap.dedent(
+            """
+            personal_access_token = "abc"
+
+            [azure_ai]
+            endpoint = "https://my-hub.openai.azure.com/"
+            """
+        ),
+        encoding='utf-8',
+    )
+    settings = load_settings(config_file)
+    assert settings.azure_ai is None

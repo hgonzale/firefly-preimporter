@@ -12,6 +12,7 @@ import requests
 from firefly_preimporter.config import FireflySettings
 from firefly_preimporter.firefly_api import (
     fetch_asset_accounts,
+    fetch_recent_account_transactions,
     format_account_label,
     upload_firefly_payloads,
     upload_transactions,
@@ -684,3 +685,94 @@ def test_fetch_existing_external_ids_collects_ids() -> None:
 
     assert result == {'abc', 'def'}
     session.get.assert_called_once()
+
+
+def test_fetch_recent_account_transactions_happy_path() -> None:
+    session = Mock(spec=requests.Session)
+    response = Mock(spec=requests.Response)
+    response.json.return_value = {
+        'data': [
+            {
+                'attributes': {
+                    'transactions': [
+                        {'description': 'Coffee Shop', 'amount': '-3.50'},
+                        {'description': 'Netflix', 'amount': '-15.99'},
+                    ],
+                },
+            },
+        ],
+        'links': {'next': None},
+    }
+    response.raise_for_status.return_value = None
+    session.get.return_value = response
+
+    result = fetch_recent_account_transactions(42, 60, _settings(), session=session)
+
+    assert result == [('Coffee Shop', '-3.50'), ('Netflix', '-15.99')]
+
+
+def test_fetch_recent_account_transactions_skips_empty_description() -> None:
+    session = Mock(spec=requests.Session)
+    response = Mock(spec=requests.Response)
+    response.json.return_value = {
+        'data': [
+            {
+                'attributes': {
+                    'transactions': [
+                        {'description': '', 'amount': '-1.00'},
+                        {'description': 'Amazon', 'amount': '-29.99'},
+                    ],
+                },
+            },
+        ],
+        'links': {'next': None},
+    }
+    response.raise_for_status.return_value = None
+    session.get.return_value = response
+
+    result = fetch_recent_account_transactions(1, 30, _settings(), session=session)
+
+    assert result == [('Amazon', '-29.99')]
+
+
+def test_fetch_recent_account_transactions_respects_max_results() -> None:
+    session = Mock(spec=requests.Session)
+    response = Mock(spec=requests.Response)
+    response.json.return_value = {
+        'data': [
+            {
+                'attributes': {
+                    'transactions': [{'description': f'TXN-{i}', 'amount': '-1.00'} for i in range(20)],
+                },
+            },
+        ],
+        'links': {'next': None},
+    }
+    response.raise_for_status.return_value = None
+    session.get.return_value = response
+
+    result = fetch_recent_account_transactions(1, 60, _settings(), max_results=5, session=session)
+
+    assert len(result) == 5
+
+
+def test_fetch_recent_account_transactions_paginates() -> None:
+    session = Mock(spec=requests.Session)
+    page1 = Mock(spec=requests.Response)
+    page1.json.return_value = {
+        'data': [{'attributes': {'transactions': [{'description': 'TXN-1', 'amount': '-1.00'}]}}],
+        'links': {'next': 'https://firefly.example/api/v1/accounts/1/transactions?page=2'},
+    }
+    page1.raise_for_status.return_value = None
+    page2 = Mock(spec=requests.Response)
+    page2.json.return_value = {
+        'data': [{'attributes': {'transactions': [{'description': 'TXN-2', 'amount': '-2.00'}]}}],
+        'links': {'next': None},
+    }
+    page2.raise_for_status.return_value = None
+    session.get.side_effect = [page1, page2]
+
+    result = fetch_recent_account_transactions(1, 60, _settings(), session=session)
+
+    assert result == [('TXN-1', '-1.00'), ('TXN-2', '-2.00')]
+    assert session.get.call_count == 2

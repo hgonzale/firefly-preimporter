@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import logging
 import os
@@ -14,11 +15,13 @@ from pathlib import Path
 from typing import cast
 
 from firefly_preimporter import __version__ as pkg_version
+from firefly_preimporter.account_matcher import suggest_account
 from firefly_preimporter.config import DEFAULT_CONFIG_PATH, FireflySettings, load_settings
 from firefly_preimporter.detect import gather_jobs
 from firefly_preimporter.firefly_api import (
     FireflyEmitter,
     fetch_asset_accounts,
+    fetch_recent_account_transactions,
     format_account_label,
     upload_firefly_payloads,
     write_firefly_payloads,
@@ -71,7 +74,7 @@ def _color_enabled(stream: object | None = None) -> bool:
         return False
     try:
         return bool(isatty())
-    except Exception:  # noqa: BLE001 - defensive for odd stream implementations
+    except Exception:
         return False
 
 
@@ -256,22 +259,102 @@ def _preview_transactions(result: ProcessingResult, *, limit: int = 3) -> None:
         print(line)
 
 
-def _prompt_account_id(result: ProcessingResult, accounts: list[dict[str, object]]) -> str:
+def _prompt_account_id(
+    result: ProcessingResult,
+    accounts: list[dict[str, object]],
+    settings: FireflySettings | None = None,
+) -> str:
     """Prompt the user to choose an account id using the fetched ``accounts`` list."""
 
     color = _color_enabled()
+
+    # --- AI suggestion ---
+    suggestions: list = []
+    if settings is not None and settings.azure_ai is not None:
+        azure_cfg = settings.azure_ai
+        try:
+
+            def _fetch_txns(account: dict[str, object]) -> tuple[str, list[tuple[str, str]]]:
+                acct_id = str(account.get('id', ''))
+                try:
+                    txns = fetch_recent_account_transactions(
+                        int(acct_id),
+                        azure_cfg.history_days,
+                        settings,
+                        max_results=azure_cfg.max_history_per_account,
+                    )
+                except Exception:
+                    txns = []
+                return acct_id, txns
+
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                futures = [pool.submit(_fetch_txns, acct) for acct in accounts]
+                recent_txns: dict[str, list[tuple[str, str]]] = {}
+                for fut in concurrent.futures.as_completed(futures):
+                    acct_id, txns = fut.result()
+                    recent_txns[acct_id] = txns
+
+            suggestions = suggest_account(
+                filename=result.job.source_path.name,
+                new_transactions=result.transactions,
+                accounts=accounts,
+                recent_txns_by_account=recent_txns,
+                ai_config=azure_cfg,
+            )
+        except Exception as exc:
+            LOGGER.debug('AI account suggestion failed: %s', exc)
+
+    suggested_ids = {s.account_id for s in suggestions}
+    is_single = len(suggestions) == 1
+
+    # --- Render account list ---
     header = _style_text('Available asset accounts:', 'cyan', 'bold', enabled=color)
     print(header)
     for idx, account in enumerate(accounts, start=1):
+        acct_id = str(account.get('id', ''))
         index_label = _style_text(f'[{idx}]', 'cyan', enabled=color)
-        print(f'  {index_label} {format_account_label(account)}')
+        label = format_account_label(account)
+        if acct_id in suggested_ids:
+            suggestion = next(s for s in suggestions if s.account_id == acct_id)
+            if is_single:
+                ai_tag = _style_text(f'[AI ✓ {suggestion.confidence}]', 'green', 'bold', enabled=color)
+            else:
+                ai_tag = _style_text(f'[AI ? {suggestion.confidence}]', 'yellow', 'bold', enabled=color)
+            print(f'  {index_label} {label}  {ai_tag}')
+        else:
+            print(f'  {index_label} {label}')
+
+    if suggestions:
+        print()
+        ai_prefix = _style_text('[AI]', 'green' if is_single else 'yellow', 'bold', enabled=color)
+        print(f'{ai_prefix} {suggestions[0].reasoning}')
+
+    # --- Determine default (single suggestion only) ---
+    default_idx: int | None = None
+    default_account: dict[str, object] | None = None
+    if is_single:
+        for idx, account in enumerate(accounts, start=1):
+            if str(account.get('id')) == suggestions[0].account_id:
+                default_idx = idx
+                default_account = account
+                break
 
     file_label = _style_text(result.job.source_path.name, 'cyan', 'bold', enabled=color)
-    hint = _style_text('(number/id, "p" to preview, "s" to skip)', 'dim', enabled=color)
+    hint_parts = []
+    if default_idx is not None:
+        hint_parts.append(f'Enter for [{default_idx}]')
+    hint_parts += ['number/id', '"p" to preview', '"s" to skip']
+    hint = _style_text(f'({", ".join(hint_parts)})', 'dim', enabled=color)
     prompt = f'Select account for {file_label} {hint}: '
+
     while True:
         response = input(prompt).strip()
         if not response:
+            if default_idx is not None and default_account is not None:
+                selected_label = _style_text('Selected:', 'green', 'bold', enabled=color)
+                print(f'{selected_label} {format_account_label(default_account)}')
+                print()
+                return str(default_account.get('id'))
             continue
         lowered = response.lower()
         if lowered in {'p', 'preview'}:
@@ -330,7 +413,7 @@ def _resolve_account_id(
         if settings is None:
             raise ValueError('Upload requires Firefly settings for account selection')
         accounts = _get_asset_accounts(args, settings)
-        return _prompt_account_id(result, accounts)
+        return _prompt_account_id(result, accounts, settings=settings)
     return None
 
 
@@ -509,7 +592,7 @@ def main(argv: list[str] | None = None) -> int:
     for job in jobs:
         try:
             result = _process_job(job)
-        except Exception as exc:  # noqa: BLE001 - defensive logging
+        except Exception as exc:
             _emit(f'Error processing {job.source_path}: {exc}', args, error=True)
             continue
         try:
@@ -556,7 +639,7 @@ def main(argv: list[str] | None = None) -> int:
         except SkipJobError as skip_exc:
             _emit(str(skip_exc), args)
             continue
-        except Exception as exc:  # noqa: BLE001 - defensive logging
+        except Exception as exc:
             _emit(f'Error processing {job.source_path}: {exc}', args, error=True)
             continue
     if args.stdout:

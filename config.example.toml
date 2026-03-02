@@ -1,0 +1,31 @@
+# Copy to ~/.local/etc/firefly_import.toml  then:  chmod 600 ~/.local/etc/firefly_import.toml
+
+personal_access_token  = "..."
+fidi_import_secret     = "..."
+firefly_api_base       = "https://firefly.example.com/api/v1"
+fidi_autoupload_url    = "https://fidi.example.com/autoupload"
+default_upload         = "firefly"   # "firefly" | "fidi" | omit to be asked
+request_timeout        = 30
+# ca_cert_path         = "/etc/ssl/certs/my-ca.pem"
+
+[default_json_config]
+date                       = "Y-m-d"
+delimiter                  = "comma"
+headers                    = true
+rules                      = true
+skip_form                  = true
+add_import_tag             = true
+duplicate_detection_method = "cell"
+unique_column_type         = "external-id"
+unique_column_index        = 0
+flow                       = "file"   # "file" | "csv" | "json"
+
+# [known_roles]
+# memo = "description"   # map CSV column names to FiDI roles
+
+# [azure_ai]
+# endpoint               = "https://my-hub.openai.azure.com/"
+# api_key                = "..."
+# model                  = "gpt-4o-mini"
+# history_days           = 60
+# max_history_per_account = 100

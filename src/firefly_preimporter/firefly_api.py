@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import requests
@@ -313,6 +313,80 @@ def upload_transactions(
     return response
 
 
+def fetch_recent_account_transactions(
+    account_id: int,
+    days: int,
+    settings: FireflySettings,
+    *,
+    max_results: int = 100,
+    session: Session | None = None,
+) -> list[tuple[str, str]]:
+    """Return recent ``(description, amount)`` pairs for ``account_id``.
+
+    Fetches up to ``max_results`` transactions from the past ``days`` days,
+    most recent first.
+    """
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=days)
+
+    http = session or requests.Session()
+    headers = {
+        'Authorization': f'Bearer {settings.personal_access_token}',
+        'Accept': 'application/json',
+    }
+    base_url = settings.firefly_api_base.rstrip('/')
+    results: list[tuple[str, str]] = []
+
+    url: str | None = f'{base_url}/accounts/{account_id}/transactions'
+    params: dict[str, str] | None = {
+        'start': start_date.isoformat(),
+        'end': end_date.isoformat(),
+        'limit': str(DEFAULT_PAGE_SIZE),
+        'page': '1',
+    }
+    while url and len(results) < max_results:
+        response = http.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=settings.request_timeout,
+            verify=get_verify_option(settings),
+        )
+        response.raise_for_status()
+        body = cast('dict[str, Any]', response.json())
+        raw_data = body.get('data', [])
+        if isinstance(raw_data, list):
+            for entry in raw_data:
+                if len(results) >= max_results:
+                    break
+                if not isinstance(entry, Mapping):
+                    continue
+                attrs = entry.get('attributes', {})
+                if not isinstance(attrs, Mapping):
+                    continue
+                txns = attrs.get('transactions', [])
+                if not isinstance(txns, list):
+                    continue
+                for txn in txns:
+                    if not isinstance(txn, Mapping):
+                        continue
+                    description = str(txn.get('description') or '').strip()
+                    amount = str(txn.get('amount') or '').strip()
+                    if description:
+                        results.append((description, amount))
+                    if len(results) >= max_results:
+                        break
+        links = body.get('links', {})
+        if isinstance(links, Mapping):
+            next_url = links.get('next')
+            url = str(next_url) if isinstance(next_url, str) and next_url else None
+        else:
+            url = None
+        params = None
+
+    return results
+
+
 def _fetch_existing_external_ids(
     settings: FireflySettings,
     payloads: list[FireflyPayload],
@@ -437,7 +511,7 @@ def upload_firefly_payloads(
                 body_text = getattr(response, 'text', '') or ''
                 _emit_response_snippet(emit, body_text, error=True)
             return 1
-        except Exception as exc:  # noqa: BLE001 - defensive logging
+        except Exception as exc:
             emit(f'Firefly upload {status_label} - failed', error=True)
             _emit_upload_error(emit, exc)
             return 1

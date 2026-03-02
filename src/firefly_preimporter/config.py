@@ -59,6 +59,17 @@ BASE_SETTINGS: dict[str, Any] = {
 
 
 @dataclass(frozen=True, slots=True)
+class AzureAiSettings:
+    """Optional settings for AI-assisted account matching via Azure AI Foundry."""
+
+    endpoint: str
+    api_key: str
+    model: str
+    history_days: int
+    max_history_per_account: int
+
+
+@dataclass(frozen=True, slots=True)
 class FireflySettings:
     """Structured settings required to interact with Firefly III and FiDI."""
 
@@ -74,6 +85,7 @@ class FireflySettings:
     default_json_config: Mapping[str, Any]
     firefly_error_on_duplicate: bool
     default_upload: str | None = None
+    azure_ai: AzureAiSettings | None = None
 
 
 def _merge_dict(base: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
@@ -98,6 +110,16 @@ def _prepare_settings(raw: Mapping[str, Any]) -> FireflySettings:
     upload_choice = str(raw.get('default_upload', '') or '').strip().lower()
     if upload_choice not in {'fidi', 'firefly'}:
         upload_choice = ''
+    raw_azure = raw.get('azure_ai') or {}
+    azure_ai: AzureAiSettings | None = None
+    if isinstance(raw_azure, Mapping) and raw_azure.get('endpoint') and raw_azure.get('api_key'):
+        azure_ai = AzureAiSettings(
+            endpoint=str(raw_azure['endpoint']),
+            api_key=str(raw_azure['api_key']),
+            model=str(raw_azure.get('model', 'gpt-4o-mini')),
+            history_days=int(raw_azure.get('history_days', 60)),
+            max_history_per_account=int(raw_azure.get('max_history_per_account', 100)),
+        )
     return FireflySettings(
         fidi_import_secret=str(raw.get('fidi_import_secret', '')),
         personal_access_token=str(raw.get('personal_access_token', '')),
@@ -111,6 +133,7 @@ def _prepare_settings(raw: Mapping[str, Any]) -> FireflySettings:
         default_json_config=json_cfg,
         firefly_error_on_duplicate=bool(raw.get('firefly_error_on_duplicate', True)),
         default_upload=upload_choice or None,
+        azure_ai=azure_ai,
     )
 
 

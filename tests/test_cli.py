@@ -5,12 +5,13 @@ from argparse import Namespace
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
 from firefly_preimporter import cli, firefly_api
-from firefly_preimporter.config import FireflySettings
+from firefly_preimporter.account_matcher import AccountSuggestion
+from firefly_preimporter.config import AzureAiSettings, FireflySettings
 from firefly_preimporter.firefly_payload import FireflyPayload
 from firefly_preimporter.models import ProcessingJob, ProcessingResult, SourceFormat, Transaction
 
@@ -1023,3 +1024,169 @@ def test_main_handles_user_skip(
         cli.LOGGER.removeHandler(handler)
     assert exit_code == 0
     assert 'Skipping test file' in log_stream.getvalue()
+
+
+# --- _prompt_account_id AI suggestion tests ---
+
+
+def _azure_settings() -> AzureAiSettings:
+    return AzureAiSettings(
+        endpoint='https://example.openai.azure.com/',
+        api_key='test-key',
+        model='gpt-4o-mini',
+        history_days=60,
+        max_history_per_account=100,
+    )
+
+
+def _firefly_settings_with_ai() -> FireflySettings:
+    return FireflySettings(
+        fidi_import_secret=SECRET_PLACEHOLDER,
+        personal_access_token=TOKEN_PLACEHOLDER,
+        fidi_autoupload_url='https://example/fidi',
+        firefly_api_base='https://example/api',
+        ca_cert_path=None,
+        request_timeout=10,
+        unique_column_role='internal_reference',
+        date_column_role='date_transaction',
+        known_roles={},
+        default_json_config={'flow': 'file'},
+        firefly_error_on_duplicate=True,
+        azure_ai=_azure_settings(),
+    )
+
+
+def _ai_suggestions(suggestions: list[dict[str, Any]], reasoning: str = 'Test reasoning.') -> list[AccountSuggestion]:
+    return [
+        AccountSuggestion(
+            account_id=str(s['account_id']),
+            account_name=f'Account {s["account_id"]}',
+            confidence=str(s['confidence']),
+            reasoning=reasoning,
+        )
+        for s in suggestions
+    ]
+
+
+def test_prompt_account_id_single_suggestion_shown_and_default(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+        {'id': '7', 'attributes': {'name': 'Home Depot', 'account_number': '8823'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    settings = _firefly_settings_with_ai()
+
+    suggestion = _ai_suggestions([{'account_id': 3, 'confidence': 'high'}], 'Filename matches.')
+    monkeypatch.setattr(cli, 'suggest_account', lambda *_a, **_k: suggestion)
+    monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
+
+    # Enter selects the default
+    responses = iter([''])
+    monkeypatch.setattr('builtins.input', lambda _prompt: next(responses))
+
+    selected = cli._prompt_account_id(result, accounts, settings=settings)
+
+    assert selected == '3'
+    out = capsys.readouterr().out
+    assert 'AI' in out
+    assert 'Filename matches.' in out
+
+
+def test_prompt_account_id_single_suggestion_highlights_with_check_mark(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    settings = _firefly_settings_with_ai()
+
+    suggestion = _ai_suggestions([{'account_id': 3, 'confidence': 'high'}])
+    monkeypatch.setattr(cli, 'suggest_account', lambda *_a, **_k: suggestion)
+    monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
+    monkeypatch.setattr('builtins.input', lambda _prompt: '1')
+
+    cli._prompt_account_id(result, accounts, settings=settings)
+
+    out = capsys.readouterr().out
+    assert '✓' in out
+
+
+def test_prompt_account_id_multiple_suggestions_shows_question_marks(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+        {'id': '7', 'attributes': {'name': 'Chase Sapphire', 'account_number': '9876'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    settings = _firefly_settings_with_ai()
+
+    monkeypatch.setattr(
+        cli,
+        'suggest_account',
+        lambda *_a, **_k: _ai_suggestions([
+            {'account_id': 3, 'confidence': 'high'},
+            {'account_id': 7, 'confidence': 'medium'},
+        ]),
+    )
+    monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
+    monkeypatch.setattr('builtins.input', lambda _prompt: '1')
+
+    cli._prompt_account_id(result, accounts, settings=settings)
+
+    out = capsys.readouterr().out
+    assert '?' in out
+    assert '✓' not in out
+
+
+def test_prompt_account_id_multiple_suggestions_no_default_on_empty_input(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+) -> None:
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+        {'id': '7', 'attributes': {'name': 'Chase Sapphire', 'account_number': '9876'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    settings = _firefly_settings_with_ai()
+
+    monkeypatch.setattr(
+        cli,
+        'suggest_account',
+        lambda *_a, **_k: _ai_suggestions([
+            {'account_id': 3, 'confidence': 'high'},
+            {'account_id': 7, 'confidence': 'medium'},
+        ]),
+    )
+    monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
+
+    # First response empty (no default), second is valid
+    responses = iter(['', '1'])
+    monkeypatch.setattr('builtins.input', lambda _prompt: next(responses))
+
+    selected = cli._prompt_account_id(result, accounts, settings=settings)
+    assert selected == '3'
+
+
+def test_prompt_account_id_no_ai_config_skips_suggestion(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    accounts: list[dict[str, object]] = [{'id': '1', 'attributes': {'name': 'Checking'}}]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    monkeypatch.setattr('builtins.input', lambda _prompt: '1')
+
+    cli._prompt_account_id(result, accounts, settings=None)
+
+    out = capsys.readouterr().out
+    assert 'AI' not in out

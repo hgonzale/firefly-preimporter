@@ -11,6 +11,7 @@ authors = [
 dependencies = [
   "requests>=2.32",
   "ofxtools>=0.9",
+  "openai>=1.0",
 ]
 
 [project.urls]
@@ -75,6 +76,7 @@ select = [
   "ALL",
 ]
 ignore = [
+  "BLE",
   "C90",
   "COM812",
   "D",

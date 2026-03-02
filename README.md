@@ -32,16 +32,22 @@ Key flags:
 
 ## Configuration
 
-Place a TOML file (default `~/.local/etc/firefly_import.toml`) with your API credentials and knobs such as:
+Copy `config.example.toml` (in the repo root) to `~/.local/etc/firefly_import.toml` and fill in your values.
+Restrict permissions so only you can read it:
 
-```toml
-personal_access_token = "..."
-fidi_import_secret = "..."
-firefly_error_on_duplicate = true  # keep true to mirror FiDI duplicate-hash checks
-default_upload = "firefly"        # optional: auto-run uploads (valid values: "fidi", "firefly", or empty)
+```bash
+chmod 600 ~/.local/etc/firefly_import.toml
 ```
 
-All other FiDI settings (like the JSON roles/mapping) remain under `[default_json_config]`. When `firefly_error_on_duplicate` stays true (the default) every Firefly upload we generate carries `error_if_duplicate_hash=true`, matching FiDI's duplicate-protection behavior; flip it off only if you explicitly want Firefly III to accept potentially duplicated transactions.
+The example file documents every available option with comments, including the optional `[azure_ai]` block for AI-assisted account matching (see below).
+
+### AI-assisted account matching (optional)
+
+When `[azure_ai]` is configured and `openai` is installed (`pip install firefly-preimporter[ai]`), the upload prompt automatically suggests the most likely Firefly account for each CSV file.
+The suggestion is based on two signals: whether the filename contains the last digits of an account number or a recognisable name, and whether the merchants and amounts in the file match the account's recent transaction history.
+
+A single high-confidence suggestion is highlighted and offered as the default (press Enter to accept); multiple candidates are highlighted but require an explicit selection.
+The feature is silently skipped when `[azure_ai]` is absent or `openai` is not installed.
 
 ## Installation
 
