@@ -63,7 +63,7 @@ brew install honkeandpastrami/tap/firefly-preimporter
 ## Tox commands
 
 ```bash
-tox -e py311          # run the pytest suite with coverage (fails under 85%)
+tox -e tests          # run the pytest suite with coverage (fails under 85%)
 tox -e lint           # Ruff lint + format checks
 tox -e types          # ty type checking
 tox -e format         # auto-fix style issues with Ruff

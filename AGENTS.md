@@ -15,11 +15,11 @@
 - `tox -e lint` — run Ruff linting/format checks.
 - `tox -e format` — auto-format via Ruff (use before committing style fixes).
 - `tox -e types` — ty type checking (Firefly stubs + `py.typed` must stay consistent).
-- `tox -e py311` — full pytest suite with coverage; fails if coverage < 85%.
+- `tox -e tests` — full pytest suite with coverage; fails if coverage < 85%.
 
 ## Coding Style & Naming Conventions
 
-- Python 3.11+, 4-space indentation, 120-character line limit (enforced by Ruff).
+- Python 3.13+, 4-space indentation, 120-character line limit (enforced by Ruff).
 - Follow descriptive, snake_case module/function names; classes use PascalCase. Avoid mutating `__all__`.
 - Every public function/class requires a meaningful docstring (Sphinx friendly). Logging via `logging` only; no bare `print()` outside user messaging.
 - Minimize use of `Any`; prefer concrete typing (dataclasses, TypedDicts, enums) over loosely typed `dict[str, Any]`/`list[Any]` helpers so ty can enforce real contracts.
@@ -30,7 +30,7 @@
 - Framework: `pytest` with `pytest-cov`. Tests live in `tests/` and should be named `test_<module>.py`.
 - All new features must include new tests that cover the added behavior.
 - Assertions should be precise; mock network calls (FiDI/Firefly) using `unittest.mock`.
-- For every task, execute the full tox pipeline (`tox -e lint`, `tox -e format`, `tox -e types`, `tox -e py311`). Use targeted `uv run pytest tests/<file>.py` only for quick iteration, but finish by re-running tox. Treat each feature as a task: run the full pipeline after implementing each feature set.
+- For every task, execute the full tox pipeline (`tox -e lint`, `tox -e format`, `tox -e types`, `tox -e tests`). Use targeted `uv run pytest tests/<file>.py` only for quick iteration, but finish by re-running tox. Treat each feature as a task: run the full pipeline after implementing each feature set.
 
 ## Commit & Pull Request Guidelines
 

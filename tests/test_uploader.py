@@ -1,26 +1,27 @@
 from unittest.mock import Mock
 
 import requests
-from firefly_preimporter.config import FireflySettings
+from firefly_preimporter.config import CommonSettings, FidiSettings, FireflyApiSettings, FireflyPreimporterSettings
 from firefly_preimporter.uploader import FidiUploader
 
 SECRET_PLACEHOLDER = 'sec' + 'ret'
 TOKEN_PLACEHOLDER = 'tok' + 'en'
 
 
-def _settings() -> FireflySettings:
-    return FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/firefly',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={},
-        firefly_error_on_duplicate=True,
+def _settings() -> FireflyPreimporterSettings:
+    return FireflyPreimporterSettings(
+        common=CommonSettings(
+            personal_access_token=TOKEN_PLACEHOLDER,
+            request_timeout=10,
+        ),
+        fidi=FidiSettings(
+            import_secret=SECRET_PLACEHOLDER,
+            autoupload_url='https://example/fidi',
+            json_config={},
+        ),
+        firefly_api=FireflyApiSettings(
+            api_base='https://example/firefly',
+        ),
     )
 
 

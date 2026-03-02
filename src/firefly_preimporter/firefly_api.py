@@ -15,7 +15,7 @@ from requests.exceptions import HTTPError, RequestException
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from pathlib import Path
 
-    from firefly_preimporter.config import FireflySettings
+    from firefly_preimporter.config import FireflyPreimporterSettings
     from requests import Session
 
 # Firefly III API constants
@@ -79,18 +79,20 @@ def _is_duplicate_error(response: requests.Response | None) -> bool:
 
 
 def fetch_asset_accounts(
-    settings: FireflySettings,
+    settings: FireflyPreimporterSettings,
     *,
     session: Session | None = None,
 ) -> list[dict[str, object]]:
     """Return the list of asset accounts available to the configured user."""
 
+    if settings.firefly_api is None:  # pragma: no cover
+        raise ValueError('Firefly API settings are required')
     http = session or requests.Session()
-    base_url = settings.firefly_api_base.rstrip('/')
+    base_url = settings.firefly_api.api_base.rstrip('/')
     url: str | None = f'{base_url}/accounts'
     params: dict[str, str] | None = {'type': 'asset', 'limit': str(DEFAULT_PAGE_SIZE), 'page': '1'}
     headers = {
-        'Authorization': f'Bearer {settings.personal_access_token}',
+        'Authorization': f'Bearer {settings.common.personal_access_token}',
         'Accept': 'application/json',
     }
     accounts: list[dict[str, object]] = []
@@ -100,7 +102,7 @@ def fetch_asset_accounts(
             url,
             headers=headers,
             params=params,
-            timeout=settings.request_timeout,
+            timeout=settings.common.request_timeout,
             verify=get_verify_option(settings),
         )
         response.raise_for_status()
@@ -200,19 +202,21 @@ def _merge_tags(existing: list[str], new_tag: str) -> list[str]:
     return ordered
 
 
-def _ensure_tag_exists(settings: FireflySettings, tag: str) -> None:
-    base_url = settings.firefly_api_base.rstrip('/')
+def _ensure_tag_exists(settings: FireflyPreimporterSettings, tag: str) -> None:
+    if settings.firefly_api is None:  # pragma: no cover
+        raise ValueError('Firefly API settings are required')
+    base_url = settings.firefly_api.api_base.rstrip('/')
     url = f'{base_url}/tags'
     body = {'tag': tag, 'date': datetime.now().date().isoformat()}
     response = requests.post(
         url,
         headers={
-            'Authorization': f'Bearer {settings.personal_access_token}',
+            'Authorization': f'Bearer {settings.common.personal_access_token}',
             'Accept': 'application/json',
             'Content-Type': 'application/json',
         },
         json=body,
-        timeout=settings.request_timeout,
+        timeout=settings.common.request_timeout,
         verify=get_verify_option(settings),
     )
     try:
@@ -226,13 +230,15 @@ def _ensure_tag_exists(settings: FireflySettings, tag: str) -> None:
 
 
 def _append_tag_to_group(
-    settings: FireflySettings,
+    settings: FireflyPreimporterSettings,
     group_id: int,
     journal_map: Mapping[int, list[str]],
     *,
     tag: str,
 ) -> requests.Response:
-    base_url = settings.firefly_api_base.rstrip('/')
+    if settings.firefly_api is None:  # pragma: no cover
+        raise ValueError('Firefly API settings are required')
+    base_url = settings.firefly_api.api_base.rstrip('/')
     url = f'{base_url}/transactions/{group_id}'
     transactions_payload: list[dict[str, object]] = []
     for journal_id, tags in journal_map.items():
@@ -241,12 +247,12 @@ def _append_tag_to_group(
     response = requests.put(
         url,
         headers={
-            'Authorization': f'Bearer {settings.personal_access_token}',
+            'Authorization': f'Bearer {settings.common.personal_access_token}',
             'Accept': 'application/json',
             'Content-Type': 'application/json',
         },
         json={'transactions': transactions_payload},
-        timeout=settings.request_timeout,
+        timeout=settings.common.request_timeout,
         verify=get_verify_option(settings),
     )
     response.raise_for_status()
@@ -254,7 +260,7 @@ def _append_tag_to_group(
 
 
 def _apply_batch_tag(
-    settings: FireflySettings,
+    settings: FireflyPreimporterSettings,
     *,
     tag: str,
     groups: list[UploadedGroup],
@@ -286,19 +292,21 @@ def write_firefly_payloads(payloads: list[FireflyPayload], output_path: Path, *,
 
 
 def upload_transactions(
-    settings: FireflySettings,
+    settings: FireflyPreimporterSettings,
     payload: FireflyPayload,
     *,
     session: Session | None = None,
 ) -> requests.Response:
     """POST ``payload`` to the Firefly III transactions endpoint."""
 
+    if settings.firefly_api is None:  # pragma: no cover
+        raise ValueError('Firefly API settings are required')
     http = session or requests.Session()
-    base_url = settings.firefly_api_base.rstrip('/')
+    base_url = settings.firefly_api.api_base.rstrip('/')
     url = f'{base_url}/transactions'
     payload_dict = payload.to_dict()
     headers = {
-        'Authorization': f'Bearer {settings.personal_access_token}',
+        'Authorization': f'Bearer {settings.common.personal_access_token}',
         'Accept': 'application/json',
         'Content-Type': 'application/json',
     }
@@ -306,7 +314,7 @@ def upload_transactions(
         url,
         headers=headers,
         json=payload_dict,
-        timeout=settings.request_timeout,
+        timeout=settings.common.request_timeout,
         verify=get_verify_option(settings),
     )
     response.raise_for_status()
@@ -316,7 +324,7 @@ def upload_transactions(
 def fetch_recent_account_transactions(
     account_id: int,
     days: int,
-    settings: FireflySettings,
+    settings: FireflyPreimporterSettings,
     *,
     max_results: int = 100,
     session: Session | None = None,
@@ -326,15 +334,17 @@ def fetch_recent_account_transactions(
     Fetches up to ``max_results`` transactions from the past ``days`` days,
     most recent first.
     """
+    if settings.firefly_api is None:  # pragma: no cover
+        raise ValueError('Firefly API settings are required')
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=days)
 
     http = session or requests.Session()
     headers = {
-        'Authorization': f'Bearer {settings.personal_access_token}',
+        'Authorization': f'Bearer {settings.common.personal_access_token}',
         'Accept': 'application/json',
     }
-    base_url = settings.firefly_api_base.rstrip('/')
+    base_url = settings.firefly_api.api_base.rstrip('/')
     results: list[tuple[str, str]] = []
 
     url: str | None = f'{base_url}/accounts/{account_id}/transactions'
@@ -349,7 +359,7 @@ def fetch_recent_account_transactions(
             url,
             headers=headers,
             params=params,
-            timeout=settings.request_timeout,
+            timeout=settings.common.request_timeout,
             verify=get_verify_option(settings),
         )
         response.raise_for_status()
@@ -388,7 +398,7 @@ def fetch_recent_account_transactions(
 
 
 def _fetch_existing_external_ids(
-    settings: FireflySettings,
+    settings: FireflyPreimporterSettings,
     payloads: list[FireflyPayload],
     *,
     session: Session | None = None,
@@ -412,15 +422,17 @@ def _fetch_existing_external_ids(
     if not account_ids or not dates:
         return set()
 
+    if settings.firefly_api is None:  # pragma: no cover
+        raise ValueError('Firefly API settings are required')
     start_date = min(dates)
     end_date = max(dates)
 
     http = session or requests.Session()
     headers = {
-        'Authorization': f'Bearer {settings.personal_access_token}',
+        'Authorization': f'Bearer {settings.common.personal_access_token}',
         'Accept': 'application/json',
     }
-    base_url = settings.firefly_api_base.rstrip('/')
+    base_url = settings.firefly_api.api_base.rstrip('/')
     existing: set[str] = set()
 
     for account_id in account_ids:
@@ -436,7 +448,7 @@ def _fetch_existing_external_ids(
                 url,
                 headers=headers,
                 params=params,
-                timeout=settings.request_timeout,
+                timeout=settings.common.request_timeout,
                 verify=get_verify_option(settings),
             )
             response.raise_for_status()
@@ -470,7 +482,7 @@ def _fetch_existing_external_ids(
 
 def upload_firefly_payloads(
     payloads: list[FireflyPayload],
-    settings: FireflySettings,
+    settings: FireflyPreimporterSettings,
     *,
     emit: FireflyEmitter,
     batch_tag: str | None = None,

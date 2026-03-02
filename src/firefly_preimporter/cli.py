@@ -16,7 +16,7 @@ from typing import cast
 
 from firefly_preimporter import __version__ as pkg_version
 from firefly_preimporter.account_matcher import suggest_account
-from firefly_preimporter.config import DEFAULT_CONFIG_PATH, FireflySettings, load_settings
+from firefly_preimporter.config import DEFAULT_CONFIG_PATH, FireflyPreimporterSettings, load_settings
 from firefly_preimporter.detect import gather_jobs
 from firefly_preimporter.firefly_api import (
     FireflyEmitter,
@@ -85,7 +85,7 @@ def _style_text(text: str, *styles: str, enabled: bool) -> str:
     return f'{prefix}{text}{ANSI_STYLES["reset"]}'
 
 
-def _get_asset_accounts(args: argparse.Namespace, settings: FireflySettings) -> list[dict[str, object]]:
+def _get_asset_accounts(args: argparse.Namespace, settings: FireflyPreimporterSettings) -> list[dict[str, object]]:
     accounts = getattr(args, 'cached_asset_accounts', None)
     if accounts is None:
         accounts = fetch_asset_accounts(settings)
@@ -262,7 +262,7 @@ def _preview_transactions(result: ProcessingResult, *, limit: int = 3) -> None:
 def _prompt_account_id(
     result: ProcessingResult,
     accounts: list[dict[str, object]],
-    settings: FireflySettings | None = None,
+    settings: FireflyPreimporterSettings | None = None,
 ) -> str:
     """Prompt the user to choose an account id using the fetched ``accounts`` list."""
 
@@ -270,8 +270,8 @@ def _prompt_account_id(
 
     # --- AI suggestion ---
     suggestions: list = []
-    if settings is not None and settings.azure_ai is not None:
-        azure_cfg = settings.azure_ai
+    if settings is not None and settings.common.azure_ai is not None:
+        azure_cfg = settings.common.azure_ai
         try:
 
             def _fetch_txns(account: dict[str, object]) -> tuple[str, list[tuple[str, str]]]:
@@ -384,7 +384,7 @@ def _prompt_account_id(
 def _resolve_account_id(
     result: ProcessingResult,
     args: argparse.Namespace,
-    settings: FireflySettings | None,
+    settings: FireflyPreimporterSettings | None,
     *,
     require_resolution: bool = True,
 ) -> str | None:
@@ -421,7 +421,7 @@ def _write_and_upload(
     result: ProcessingResult,
     args: argparse.Namespace,
     uploader: FidiUploader | None,
-    settings: FireflySettings | None,
+    settings: FireflyPreimporterSettings | None,
     account_id: str | None,
     *,
     csv_output_path: Path | None,
@@ -430,7 +430,7 @@ def _write_and_upload(
     firefly_upload: bool,
     dry_run: bool,
 ) -> str:
-    allow_duplicates = bool(getattr(args, 'upload_duplicates', False))
+    allow_duplicates = bool(getattr(args, 'allow_duplicates', None))
     destination: Path | None = None
     if not (upload_to_fidi or firefly_upload):
         destination = csv_output_path
@@ -514,8 +514,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument('-n', '--dry-run', action='store_true', help='Dry-run uploads (skip the final POST).')
     parser.add_argument(
-        '--upload-duplicates',
+        '--allow-duplicates',
         action='store_true',
+        default=None,
         help='Allow duplicate detection to be bypassed (FiDI + Firefly).',
     )
     parser.add_argument('--stdout', action='store_true', help='Print normalized CSV to stdout')
@@ -531,31 +532,35 @@ def main(argv: list[str] | None = None) -> int:
     firefly_emit = _make_emitter(args)
     config_arg = args.config
     config_path = (config_arg or DEFAULT_CONFIG_PATH).expanduser()
-    allow_duplicate_uploads = bool(getattr(args, 'upload_duplicates', False))
 
-    def _load(*, optional: bool) -> FireflySettings | None:
-        target_path = config_arg if config_arg else None
+    def _load(*, optional: bool) -> FireflyPreimporterSettings | None:
+        target_path = config_arg or None
         try:
             return load_settings(target_path)
         except FileNotFoundError:
             if optional:
                 return None
             raise
+        except (KeyError, TypeError, ValueError) as exc:
+            if optional:
+                LOGGER.warning('Skipping config file due to parse error: %s', exc)
+                return None
+            raise
 
-    settings: FireflySettings | None = None
+    if args.fidi and not args.upload:
+        raise ValueError('--fidi requires --upload/-u')
+
+    settings: FireflyPreimporterSettings | None = None
     if config_arg or args.upload:
         settings = _load(optional=False)
     elif config_path.is_file():
         settings = _load(optional=True)
 
-    if args.fidi and not args.upload:
-        raise ValueError('--fidi requires --upload/-u')
-
     upload_mode: str | None = None
     if args.upload:
         upload_mode = 'fidi' if args.fidi else 'firefly'
-    elif settings and settings.default_upload:
-        upload_mode = settings.default_upload
+    elif settings and settings.common.default_upload:
+        upload_mode = settings.common.default_upload
 
     upload_requested = upload_mode is not None
     fidi_upload = upload_mode == 'fidi'
@@ -565,14 +570,23 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError('--dry-run requires --upload/ -u')
     if upload_requested and settings is None:
         settings = _load(optional=False)
+    if fidi_upload and settings is not None and settings.fidi is None:
+        raise ValueError('FiDI is not configured — add a [fidi] section to your config file')
+    if firefly_upload and settings is not None and settings.firefly_api is None:
+        raise ValueError('Firefly API is not configured — add a [firefly-api] section to your config file')
     uploader = FidiUploader(settings, dry_run=args.dry_run) if settings and fidi_upload and not args.dry_run else None
     payload_builder: FireflyPayloadBuilder | None = None
     if firefly_payload_requested:
         if settings is None:
             raise ValueError('Firefly uploads require Firefly settings for account metadata')
+        if settings.firefly_api is None:  # pragma: no cover
+            raise ValueError('Firefly API settings are required')
+        allow_duplicates = (
+            args.allow_duplicates if args.allow_duplicates is not None else settings.firefly_api.allow_duplicates
+        )
         payload_builder = FireflyPayloadBuilder(
             _generate_batch_tag(),
-            error_on_duplicate=settings.firefly_error_on_duplicate and not allow_duplicate_uploads,
+            error_on_duplicate=not allow_duplicates,
         )
     csv_output_path = args.output if not firefly_upload else None
     payload_output_path = args.output if firefly_upload else None

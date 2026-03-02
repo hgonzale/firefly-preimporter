@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - type-checking imports only
     from pathlib import Path
 
 
-class SourceFormat(str, Enum):
+class SourceFormat(StrEnum):
     """Supported input formats detected by the pipeline."""
 
     CSV = 'csv'

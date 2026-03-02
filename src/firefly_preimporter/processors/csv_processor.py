@@ -130,9 +130,7 @@ def iter_transactions(rows: Iterable[list[str]]) -> Iterator[Transaction]:
             transaction_id = row[optional_map['transaction_id']].strip() or None
 
         yield Transaction(
-            transaction_id=transaction_id
-            if transaction_id
-            else generate_transaction_id(normalized_date, description, normalized_amount),
+            transaction_id=transaction_id or generate_transaction_id(normalized_date, description, normalized_amount),
             date=normalized_date,
             description=description,
             amount=normalized_amount,

@@ -11,12 +11,43 @@ import pytest
 
 from firefly_preimporter import cli, firefly_api
 from firefly_preimporter.account_matcher import AccountSuggestion
-from firefly_preimporter.config import AzureAiSettings, FireflySettings
+from firefly_preimporter.config import (
+    AzureAiSettings,
+    CommonSettings,
+    FidiSettings,
+    FireflyApiSettings,
+    FireflyPreimporterSettings,
+)
 from firefly_preimporter.firefly_payload import FireflyPayload
 from firefly_preimporter.models import ProcessingJob, ProcessingResult, SourceFormat, Transaction
 
 SECRET_PLACEHOLDER = 'sec' + 'ret'
 TOKEN_PLACEHOLDER = 'tok' + 'en'
+
+
+def _settings(
+    *,
+    default_upload: str | None = None,
+    azure_ai: AzureAiSettings | None = None,
+    allow_duplicates: bool = False,
+) -> FireflyPreimporterSettings:
+    return FireflyPreimporterSettings(
+        common=CommonSettings(
+            personal_access_token=TOKEN_PLACEHOLDER,
+            request_timeout=10,
+            default_upload=default_upload,
+            azure_ai=azure_ai,
+        ),
+        fidi=FidiSettings(
+            import_secret=SECRET_PLACEHOLDER,
+            autoupload_url='https://example/fidi',
+            json_config={'flow': 'file'},
+        ),
+        firefly_api=FireflyApiSettings(
+            api_base='https://example/api',
+            allow_duplicates=allow_duplicates,
+        ),
+    )
 
 
 def test_parse_args_basic() -> None:
@@ -167,25 +198,13 @@ def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: Pr
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
-    firefly_settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    firefly_settings = _settings()
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
     fetch_calls = {'count': 0}
 
-    def fake_fetch(_settings: FireflySettings) -> list[dict[str, object]]:
+    def fake_fetch(_settings: FireflyPreimporterSettings) -> list[dict[str, object]]:
         fetch_calls['count'] += 1
         return [{'id': '123', 'attributes': {'name': 'Checking'}}]
 
@@ -200,7 +219,7 @@ def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: Pr
     captured: dict[str, object | None] = {}
 
     class DummyUploader:
-        def __init__(self, settings: FireflySettings, *, dry_run: bool = False) -> None:
+        def __init__(self, settings: FireflyPreimporterSettings, *, dry_run: bool = False) -> None:
             self.settings = settings
             self.dry_run = dry_run
 
@@ -212,7 +231,7 @@ def test_main_prompts_for_account(monkeypatch: pytest.MonkeyPatch, dummy_job: Pr
     monkeypatch.setattr(cli, 'FidiUploader', DummyUploader)
 
     def fake_build_json_config(
-        _settings: FireflySettings,
+        _settings: FireflyPreimporterSettings,
         *,
         account_id: str | None,
         allow_duplicates: bool = False,
@@ -336,19 +355,7 @@ def test_resolve_account_id_flag_matches_account_number(
     dummy_job: ProcessingJob,
 ) -> None:
     args = Namespace(upload=True, account_id='OFX-100')
-    settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    settings = _settings()
     accounts: list[dict[str, object]] = [{'id': '77', 'attributes': {'name': 'Card', 'account_number': 'OFX-100'}}]
     monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
     result = ProcessingResult(job=dummy_job, account_id=None)
@@ -368,21 +375,9 @@ def test_resolve_account_id_skips_lookup_when_not_uploading(
     dummy_job: ProcessingJob,
 ) -> None:
     args = Namespace(upload=None)
-    settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    settings = _settings()
 
-    def fail_fetch(_settings: FireflySettings) -> list[dict[str, object]]:  # pragma: no cover - should not run
+    def fail_fetch(_settings: FireflyPreimporterSettings) -> list[dict[str, object]]:  # pragma: no cover
         raise AssertionError('fetch_asset_accounts should not be called')
 
     monkeypatch.setattr(cli, 'fetch_asset_accounts', fail_fetch)
@@ -398,19 +393,7 @@ def test_resolve_account_id_skips_lookup_when_not_uploading(
 
 def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
     args = Namespace(upload=True)
-    settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    settings = _settings()
     accounts: list[dict[str, object]] = [{'id': '55', 'attributes': {'name': 'Match', 'account_number': 'OFX-999'}}]
     monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
     result = ProcessingResult(job=dummy_job, account_id='OFX-999')
@@ -420,19 +403,7 @@ def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPat
 
 def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
     args = Namespace(upload=True)
-    settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    settings = _settings()
     accounts: list[dict[str, object]] = [{'id': '1', 'attributes': {'name': 'Checking'}}]
     monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
     prompt_calls = {'count': 0}
@@ -470,26 +441,14 @@ def test_main_reports_dry_run_upload(
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
-    firefly_settings = FireflySettings(
-        fidi_import_secret='sec',  # noqa: S106 - test secret
-        personal_access_token='tok',  # noqa: S106 - test token
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    firefly_settings = _settings()
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
     accounts = cast('list[dict[str, object]]', [{'id': '1', 'attributes': {'name': 'Checking'}}])
     fetch_calls = {'count': 0}
 
-    def fake_fetch(_settings: FireflySettings) -> list[dict[str, object]]:
+    def fake_fetch(_settings: FireflyPreimporterSettings) -> list[dict[str, object]]:
         fetch_calls['count'] += 1
         return accounts
 
@@ -518,19 +477,7 @@ def test_fidi_upload_logs_response_body_when_verbose(
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
-    settings = FireflySettings(
-        fidi_import_secret='sec',  # noqa: S106 - test secret
-        personal_access_token='tok',  # noqa: S106 - test token
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    settings = _settings()
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: settings)
@@ -543,7 +490,7 @@ def test_fidi_upload_logs_response_body_when_verbose(
     monkeypatch.setattr(cli, 'write_output', fake_write_output)
 
     class DummyUploader:
-        def __init__(self, settings: FireflySettings, *, dry_run: bool = False) -> None:
+        def __init__(self, settings: FireflyPreimporterSettings, *, dry_run: bool = False) -> None:
             self.settings = settings
             self.dry_run = dry_run
 
@@ -578,19 +525,7 @@ def test_stdout_dry_run_prints_json(
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
-    firefly_settings = FireflySettings(
-        fidi_import_secret='sec',  # noqa: S106 - test secret
-        personal_access_token='tok',  # noqa: S106 - test token
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    firefly_settings = _settings()
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
@@ -615,19 +550,7 @@ def test_firefly_upload_respects_dry_run(
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
-    firefly_settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    firefly_settings = _settings()
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
@@ -643,7 +566,7 @@ def test_firefly_upload_respects_dry_run(
 
     def fake_upload_firefly_payloads(
         payloads: list[FireflyPayload],
-        settings: FireflySettings,
+        settings: FireflyPreimporterSettings,
         *,
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
@@ -673,19 +596,7 @@ def test_firefly_upload_duplicate_flag_controls_builder(
     *,
     allow_duplicates: bool,
 ) -> None:
-    firefly_settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    firefly_settings = _settings()
     result = ProcessingResult(
         job=dummy_job,
         transactions=[
@@ -723,10 +634,10 @@ def test_firefly_upload_duplicate_flag_controls_builder(
 
     args = [str(dummy_job.source_path), '--upload']
     if allow_duplicates:
-        args.insert(0, '--upload-duplicates')
+        args.insert(0, '--allow-duplicates')
     exit_code = cli.main(args)
     assert exit_code == 0
-    assert recorded['flag'] is (firefly_settings.firefly_error_on_duplicate and not allow_duplicates)
+    assert recorded['flag'] is not allow_duplicates
 
 
 def test_firefly_upload_posts_payload(
@@ -738,19 +649,7 @@ def test_firefly_upload_posts_payload(
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
-    firefly_settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    firefly_settings = _settings()
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
@@ -766,7 +665,7 @@ def test_firefly_upload_posts_payload(
 
     def fake_upload_firefly_payloads(
         payloads: list[FireflyPayload],
-        settings: FireflySettings,
+        settings: FireflyPreimporterSettings,
         *,
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
@@ -806,19 +705,7 @@ def test_firefly_upload_logs_response_on_http_error(
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
-    firefly_settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    firefly_settings = _settings()
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
@@ -832,7 +719,7 @@ def test_firefly_upload_logs_response_on_http_error(
 
     def fake_upload_firefly_payloads(
         payloads: list[FireflyPayload],
-        settings: FireflySettings,
+        settings: FireflyPreimporterSettings,
         *,
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
@@ -872,20 +759,7 @@ def test_firefly_upload_from_config_default(
     )
     config_file = tmp_path / 'config.toml'
     config_file.write_text('dummy = true\n', encoding='utf-8')
-    firefly_settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-        default_upload='firefly',
-    )
+    firefly_settings = _settings(default_upload='firefly')
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: firefly_settings)
@@ -900,7 +774,7 @@ def test_firefly_upload_from_config_default(
 
     def fake_upload_firefly_payloads(
         payloads: list[FireflyPayload],
-        settings: FireflySettings,
+        settings: FireflyPreimporterSettings,
         *,
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
@@ -927,19 +801,7 @@ def test_resolve_account_id_matches_by_account_number(tmp_path: Path) -> None:
     result = ProcessingResult(job=job, account_id='ACCT-3550')
     args = Namespace(account_id=None)
     args.cached_asset_accounts = [{'id': '777', 'attributes': {'account_number': 'ACCT-3550'}}]
-    settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    settings = _settings()
 
     resolved = cli._resolve_account_id(result, args, settings, require_resolution=True)
 
@@ -989,19 +851,7 @@ def test_main_handles_user_skip(
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
-    settings = FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-    )
+    settings = _settings()
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     monkeypatch.setattr(cli, 'load_settings', lambda _path: settings)
@@ -1039,21 +889,8 @@ def _azure_settings() -> AzureAiSettings:
     )
 
 
-def _firefly_settings_with_ai() -> FireflySettings:
-    return FireflySettings(
-        fidi_import_secret=SECRET_PLACEHOLDER,
-        personal_access_token=TOKEN_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/api',
-        ca_cert_path=None,
-        request_timeout=10,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
-        azure_ai=_azure_settings(),
-    )
+def _firefly_settings_with_ai() -> FireflyPreimporterSettings:
+    return _settings(azure_ai=_azure_settings())
 
 
 def _ai_suggestions(suggestions: list[dict[str, Any]], reasoning: str = 'Test reasoning.') -> list[AccountSuggestion]:

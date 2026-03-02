@@ -9,7 +9,7 @@ import requests
 from firefly_preimporter.utils import get_verify_option
 
 if TYPE_CHECKING:  # pragma: no cover
-    from firefly_preimporter.config import FireflySettings
+    from firefly_preimporter.config import FireflyPreimporterSettings
 
 
 class FidiUploader:
@@ -17,7 +17,7 @@ class FidiUploader:
 
     def __init__(
         self,
-        settings: FireflySettings,
+        settings: FireflyPreimporterSettings,
         *,
         session: requests.Session | None = None,
         dry_run: bool = False,
@@ -29,13 +29,15 @@ class FidiUploader:
     def upload(self, csv_payload: str, json_config: dict[str, object]) -> requests.Response:
         """Post the payloads to FiDI and return the response (or a dummy response in dry-run)."""
 
+        if self.settings.fidi is None:  # pragma: no cover
+            raise ValueError('FiDI settings are required')
         files = {
             'importable': ('transactions.csv', csv_payload.encode('utf-8'), 'text/csv'),
             'json': ('config.json', json.dumps(json_config).encode('utf-8'), 'application/json'),
         }
-        data = {'secret': self.settings.fidi_import_secret}
+        data = {'secret': self.settings.fidi.import_secret}
         headers = {
-            'Authorization': f'Bearer {self.settings.personal_access_token}',
+            'Authorization': f'Bearer {self.settings.common.personal_access_token}',
             'Accept': 'application/json',
         }
         if self.dry_run:
@@ -44,11 +46,11 @@ class FidiUploader:
             return response
 
         response = self.session.post(
-            self.settings.fidi_autoupload_url,
+            self.settings.fidi.autoupload_url,
             headers=headers,
             data=data,
             files=files,
-            timeout=self.settings.request_timeout,
+            timeout=self.settings.common.request_timeout,
             verify=get_verify_option(self.settings),
         )
         response.raise_for_status()

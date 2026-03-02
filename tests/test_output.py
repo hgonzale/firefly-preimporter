@@ -3,27 +3,47 @@ from typing import cast
 
 import pytest
 
-from firefly_preimporter.config import FireflySettings
+from firefly_preimporter.config import CommonSettings, FidiSettings, FireflyApiSettings, FireflyPreimporterSettings
 from firefly_preimporter.models import ProcessingJob, ProcessingResult, SourceFormat, Transaction
 from firefly_preimporter.output import build_csv_payload, build_json_config, write_output
 
 TOKEN_PLACEHOLDER = 'sec' + 'ret'
 IMPORT_PLACEHOLDER = 'tok' + 'en'
 
+_FULL_JSON_CONFIG = {
+    'date': 'Y-m-d',
+    'delimiter': 'comma',
+    'headers': True,
+    'rules': True,
+    'skip_form': True,
+    'add_import_tag': True,
+    'duplicate_detection_method': 'cell',
+    'ignore_duplicate_lines': True,
+    'ignore_duplicate_transactions': True,
+    'unique_column_type': 'external-id',
+    'unique_column_index': 0,
+    'default_account': 0,
+    'flow': 'file',
+    'conversion': False,
+    'mapping': [],
+    'version': 3,
+}
 
-def _settings() -> FireflySettings:
-    return FireflySettings(
-        fidi_import_secret=TOKEN_PLACEHOLDER,
-        personal_access_token=IMPORT_PLACEHOLDER,
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://example/firefly',
-        ca_cert_path=None,
-        request_timeout=30,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={'dtposted': 'date_transaction'},
-        default_json_config={'flow': 'file'},
-        firefly_error_on_duplicate=True,
+
+def _settings() -> FireflyPreimporterSettings:
+    return FireflyPreimporterSettings(
+        common=CommonSettings(
+            personal_access_token=IMPORT_PLACEHOLDER,
+            request_timeout=30,
+        ),
+        fidi=FidiSettings(
+            import_secret=TOKEN_PLACEHOLDER,
+            autoupload_url='https://example/fidi',
+            json_config=dict(_FULL_JSON_CONFIG),
+        ),
+        firefly_api=FireflyApiSettings(
+            api_base='https://example/firefly',
+        ),
     )
 
 

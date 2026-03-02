@@ -15,48 +15,6 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH: Path = Path.home() / '.local/etc/firefly_import.toml'
 """Default location for the user provided TOML configuration file."""
 
-DEFAULT_JSON_CONFIG: dict[str, Any] = {
-    'date': 'Y-m-d',
-    'delimiter': 'comma',
-    'headers': True,
-    'rules': True,
-    'skip_form': True,
-    'add_import_tag': True,
-    'duplicate_detection_method': 'cell',
-    'ignore_duplicate_lines': True,
-    'ignore_duplicate_transactions': True,
-    'unique_column_type': 'external-id',
-    'unique_column_index': 0,
-    'default_account': 0,
-    'flow': 'file',
-    'conversion': False,
-    'mapping': [],
-    'version': 3,
-}
-"""Baseline FiDI JSON configuration that can be overridden via TOML."""
-
-BASE_SETTINGS: dict[str, Any] = {
-    'fidi_import_secret': '',
-    'personal_access_token': '',
-    'fidi_autoupload_url': 'https://example.com/fidi/autoupload',
-    'firefly_api_base': 'https://example.com/firefly/api/v1',
-    'ca_cert_path': None,
-    'request_timeout': 30,
-    'unique_column_role': 'internal_reference',
-    'date_column_role': 'date_transaction',
-    'known_roles': {
-        'dtposted': 'date_transaction',
-        'trnamt': 'amount',
-        'name': 'description',
-        'fitid': 'internal_reference',
-        'acctid': 'account-number',
-    },
-    'default_json_config': DEFAULT_JSON_CONFIG,
-    'firefly_error_on_duplicate': True,
-    'default_upload': '',
-}
-"""Default settings merged with any local overrides."""
-
 
 @dataclass(frozen=True, slots=True)
 class AzureAiSettings:
@@ -70,47 +28,55 @@ class AzureAiSettings:
 
 
 @dataclass(frozen=True, slots=True)
-class FireflySettings:
-    """Structured settings required to interact with Firefly III and FiDI."""
+class CommonSettings:
+    """Shared settings used across all upload paths."""
 
-    fidi_import_secret: str
     personal_access_token: str
-    fidi_autoupload_url: str
-    firefly_api_base: str
-    ca_cert_path: Path | None
     request_timeout: int
-    unique_column_role: str
-    date_column_role: str
-    known_roles: Mapping[str, str]
-    default_json_config: Mapping[str, Any]
-    firefly_error_on_duplicate: bool
+    ca_cert_path: Path | None = None
     default_upload: str | None = None
     azure_ai: AzureAiSettings | None = None
 
 
-def _merge_dict(base: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
-    """Deep merge two dictionaries, returning a new dictionary."""
+@dataclass(frozen=True, slots=True)
+class FidiSettings:
+    """Settings for the FiDI upload path."""
 
-    merged: dict[str, Any] = dict(base)
-    for key, value in overrides.items():
-        if key in merged and isinstance(merged[key], Mapping) and isinstance(value, Mapping):
-            merged[key] = _merge_dict(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
+    import_secret: str
+    autoupload_url: str
+    json_config: Mapping[str, Any]
 
 
-def _prepare_settings(raw: Mapping[str, Any]) -> FireflySettings:
-    """Convert a raw dictionary into ``FireflySettings`` with proper types."""
+@dataclass(frozen=True, slots=True)
+class FireflyApiSettings:
+    """Settings for the Firefly III API upload path."""
 
-    ca_path = raw.get('ca_cert_path')
+    api_base: str
+    allow_duplicates: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class FireflyPreimporterSettings:
+    """Structured settings for Firefly Preimporter."""
+
+    common: CommonSettings
+    fidi: FidiSettings | None = None
+    firefly_api: FireflyApiSettings | None = None
+
+
+def _prepare_settings(raw: Mapping[str, Any]) -> FireflyPreimporterSettings:
+    """Convert a raw dictionary into ``FireflyPreimporterSettings`` with proper types."""
+
+    raw_common = raw.get('common', {})
+
+    ca_path = raw_common.get('ca_cert_path')
     resolved_ca = Path(ca_path).expanduser() if isinstance(ca_path, str) and ca_path else None
-    json_cfg = dict(raw.get('default_json_config', {}))
-    known_roles = dict(raw.get('known_roles', {}))
-    upload_choice = str(raw.get('default_upload', '') or '').strip().lower()
+
+    upload_choice = str(raw_common.get('default_upload', '') or '').strip().lower()
     if upload_choice not in {'fidi', 'firefly'}:
         upload_choice = ''
-    raw_azure = raw.get('azure_ai') or {}
+
+    raw_azure = raw_common.get('azure_ai') or {}
     azure_ai: AzureAiSettings | None = None
     if isinstance(raw_azure, Mapping) and raw_azure.get('endpoint') and raw_azure.get('api_key'):
         azure_ai = AzureAiSettings(
@@ -120,25 +86,41 @@ def _prepare_settings(raw: Mapping[str, Any]) -> FireflySettings:
             history_days=int(raw_azure.get('history_days', 60)),
             max_history_per_account=int(raw_azure.get('max_history_per_account', 100)),
         )
-    return FireflySettings(
-        fidi_import_secret=str(raw.get('fidi_import_secret', '')),
-        personal_access_token=str(raw.get('personal_access_token', '')),
-        fidi_autoupload_url=str(raw.get('fidi_autoupload_url', '')),
-        firefly_api_base=str(raw.get('firefly_api_base', '')),
+
+    common = CommonSettings(
+        personal_access_token=str(raw_common['personal_access_token']),
+        request_timeout=int(raw_common['request_timeout']),
         ca_cert_path=resolved_ca,
-        request_timeout=int(raw.get('request_timeout', 30)),
-        unique_column_role=str(raw.get('unique_column_role', 'internal_reference')),
-        date_column_role=str(raw.get('date_column_role', 'date_transaction')),
-        known_roles=known_roles,
-        default_json_config=json_cfg,
-        firefly_error_on_duplicate=bool(raw.get('firefly_error_on_duplicate', True)),
         default_upload=upload_choice or None,
         azure_ai=azure_ai,
     )
 
+    fidi: FidiSettings | None = None
+    if 'fidi' in raw:
+        raw_fidi = raw['fidi']
+        fidi = FidiSettings(
+            import_secret=str(raw_fidi['import_secret']),
+            autoupload_url=str(raw_fidi['autoupload_url']),
+            json_config=dict(raw_fidi.get('json_config', {})),
+        )
 
-def load_settings(path: Path | None = None) -> FireflySettings:
-    """Load ``FireflySettings`` from the provided TOML file path."""
+    firefly_api: FireflyApiSettings | None = None
+    if 'firefly_api' in raw:
+        raw_fa = raw['firefly_api']
+        firefly_api = FireflyApiSettings(
+            api_base=str(raw_fa['api_base']),
+            allow_duplicates=bool(raw_fa.get('allow_duplicates', False)),
+        )
+
+    return FireflyPreimporterSettings(
+        common=common,
+        fidi=fidi,
+        firefly_api=firefly_api,
+    )
+
+
+def load_settings(path: Path | None = None) -> FireflyPreimporterSettings:
+    """Load ``FireflyPreimporterSettings`` from the provided TOML file path."""
 
     config_path = (path or DEFAULT_CONFIG_PATH).expanduser()
     if not config_path.is_file():
@@ -166,9 +148,14 @@ def load_settings(path: Path | None = None) -> FireflySettings:
         pass
 
     with config_path.open('rb') as handle:
-        overrides = tomllib.load(handle)
+        raw = tomllib.load(handle)
 
-    merged = _merge_dict(BASE_SETTINGS, overrides)
-    if 'default_json_config' not in overrides:
-        merged['default_json_config'] = dict(DEFAULT_JSON_CONFIG)
-    return _prepare_settings(merged)
+    if 'firefly-api' in raw:
+        raw['firefly_api'] = raw.pop('firefly-api')
+    common = raw.get('common', {})
+    if 'azure-ai' in common:
+        common['azure_ai'] = common.pop('azure-ai')
+    if 'fidi' in raw and 'json-config' in raw['fidi']:
+        raw['fidi']['json_config'] = raw['fidi'].pop('json-config')
+
+    return _prepare_settings(raw)

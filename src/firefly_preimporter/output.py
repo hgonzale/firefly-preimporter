@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from dataclasses import asdict
 from pathlib import Path
 
-from firefly_preimporter.config import DEFAULT_JSON_CONFIG, FireflySettings
+from firefly_preimporter.config import FireflyPreimporterSettings
 from firefly_preimporter.models import ProcessingResult, Transaction
 
 
@@ -27,18 +27,19 @@ def build_csv_payload(transactions: Iterable[Transaction]) -> str:
 
 
 def build_json_config(
-    settings: FireflySettings,
+    settings: FireflyPreimporterSettings,
     *,
     account_id: str | None,
     allow_duplicates: bool = False,
 ) -> dict[str, object]:
     """Construct the FiDI JSON config payload for the given account."""
 
-    if not isinstance(settings, FireflySettings):
+    if not isinstance(settings, FireflyPreimporterSettings):
         raise TypeError('invalid Firefly settings')
 
-    config = dict(DEFAULT_JSON_CONFIG)
-    config.update(settings.default_json_config)
+    if settings.fidi is None:  # pragma: no cover
+        raise ValueError('FiDI settings are required')
+    config = dict(settings.fidi.json_config)
     # FiDI v3 schema restricts ``flow`` to a small enum of recognizable sources.
     # Our CLI always operates as a local file importer.
     config['flow'] = 'file'

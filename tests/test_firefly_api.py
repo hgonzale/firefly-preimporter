@@ -9,7 +9,7 @@ import pytest
 
 import firefly_preimporter.firefly_api as firefly_api
 import requests
-from firefly_preimporter.config import FireflySettings
+from firefly_preimporter.config import CommonSettings, FidiSettings, FireflyApiSettings, FireflyPreimporterSettings
 from firefly_preimporter.firefly_api import (
     fetch_asset_accounts,
     fetch_recent_account_transactions,
@@ -24,19 +24,20 @@ from requests import Response
 from requests.exceptions import HTTPError, RequestException
 
 
-def _settings() -> FireflySettings:
-    return FireflySettings(
-        fidi_import_secret='sec',  # noqa: S106 - mock secret for tests
-        personal_access_token='token',  # noqa: S106 - mock token for tests
-        fidi_autoupload_url='https://example/fidi',
-        firefly_api_base='https://firefly.example/api/v1',
-        ca_cert_path=None,
-        request_timeout=5,
-        unique_column_role='internal_reference',
-        date_column_role='date_transaction',
-        known_roles={},
-        default_json_config={},
-        firefly_error_on_duplicate=True,
+def _settings() -> FireflyPreimporterSettings:
+    return FireflyPreimporterSettings(
+        common=CommonSettings(
+            personal_access_token='token',  # noqa: S106 - mock token for tests
+            request_timeout=5,
+        ),
+        fidi=FidiSettings(
+            import_secret='sec',  # noqa: S106 - mock secret for tests
+            autoupload_url='https://example/fidi',
+            json_config={},
+        ),
+        firefly_api=FireflyApiSettings(
+            api_base='https://firefly.example/api/v1',
+        ),
     )
 
 
@@ -168,7 +169,7 @@ def test_upload_firefly_payloads_success(monkeypatch: pytest.MonkeyPatch) -> Non
     payload = _make_payload()
     called: list[dict[str, object]] = []
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflyPreimporterSettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = settings
         called.append(payload_arg.to_dict())
         return SimpleNamespace(status_code=200, text='{}', json=lambda: {'data': []})
@@ -193,9 +194,9 @@ def test_upload_firefly_payloads_http_error(monkeypatch: pytest.MonkeyPatch) -> 
     response.status_code = 422
     response._content = b'{"message":"Invalid"}'
     http_error = HTTPError('422 Client Error')
-    http_error.response = response  # type: ignore[assignment]
+    http_error.response = response
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflyPreimporterSettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
         raise http_error
 
@@ -217,13 +218,13 @@ def test_upload_firefly_payloads_duplicate(monkeypatch: pytest.MonkeyPatch) -> N
     payload = _make_payload()
     response = Response()
     response.status_code = 422
-    response._content = (  # type: ignore[attr-defined]
+    response._content = (
         b'{"message":"Duplicate of transaction #5899.","errors":{"transactions.0.description":["Duplicate"]}}'
     )
     http_error = HTTPError('422 Client Error')
-    http_error.response = response  # type: ignore[assignment]
+    http_error.response = response
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflyPreimporterSettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
         raise http_error
 
@@ -245,7 +246,7 @@ def test_upload_firefly_payloads_applies_batch_tag(monkeypatch: pytest.MonkeyPat
     payload = _make_payload()
     monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_external_ids', lambda *_a, **_k: set())
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflyPreimporterSettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
         return SimpleNamespace(
             status_code=200,
@@ -313,7 +314,7 @@ def test_extract_uploaded_groups_parses_transactions() -> None:
     }
     resp = Response()
     resp.status_code = 200
-    resp._content = json.dumps(payload).encode('utf-8')  # type: ignore[attr-defined]
+    resp._content = json.dumps(payload).encode('utf-8')
 
     groups = firefly_api._extract_uploaded_groups(resp)
 
@@ -347,7 +348,7 @@ def test_apply_batch_tag_calls_append(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[tuple[int, dict[int, list[str]], str]] = []
 
     def fake_append(
-        settings: FireflySettings,
+        settings: FireflyPreimporterSettings,
         group_id: int,
         journal_map: dict[int, list[str]],
         *,
@@ -419,7 +420,8 @@ def test_verify_option_returns_cert_path(tmp_path: Path) -> None:
 
     cert_path = tmp_path / 'ca.pem'
     cert_path.write_text('cert', encoding='utf-8')
-    settings = replace(_settings(), ca_cert_path=cert_path)
+    s = _settings()
+    settings = replace(s, common=replace(s.common, ca_cert_path=cert_path))
 
     result = get_verify_option(settings)
 
@@ -430,7 +432,8 @@ def test_verify_option_warns_on_missing_cert(tmp_path: Path, caplog: pytest.LogC
     """Test that a warning is logged when CA cert path is configured but file doesn't exist."""
 
     missing_cert = tmp_path / 'missing_ca.pem'
-    settings = replace(_settings(), ca_cert_path=missing_cert)
+    s = _settings()
+    settings = replace(s, common=replace(s.common, ca_cert_path=missing_cert))
 
     with caplog.at_level('WARNING'):
         result = get_verify_option(settings)
@@ -445,7 +448,8 @@ def test_verify_option_warns_on_missing_cert(tmp_path: Path, caplog: pytest.LogC
 def test_verify_option_returns_true_when_no_cert_configured() -> None:
     """Test that default verification is used when no CA cert is configured."""
 
-    settings = replace(_settings(), ca_cert_path=None)
+    s = _settings()
+    settings = replace(s, common=replace(s.common, ca_cert_path=None))
 
     result = get_verify_option(settings)
 
@@ -476,7 +480,7 @@ def test_fetch_asset_accounts_handles_non_list_payload() -> None:
 def test_extract_uploaded_groups_handles_non_list_data() -> None:
     response = Response()
     response.status_code = 200
-    response._content = b'{"data": {"id": "1"}}'  # type: ignore[attr-defined]
+    response._content = b'{"data": {"id": "1"}}'
 
     assert firefly_api._extract_uploaded_groups(response) == []
 
@@ -493,7 +497,7 @@ def test_extract_uploaded_groups_handles_single_dict_payload() -> None:
         },
     }
     resp = Response()
-    resp._content = json.dumps(payload).encode('utf-8')  # type: ignore[attr-defined]
+    resp._content = json.dumps(payload).encode('utf-8')
     resp.status_code = 200
 
     groups = firefly_api._extract_uploaded_groups(resp)
@@ -553,7 +557,7 @@ def test_apply_batch_tag_logs_and_raises_on_other_exception(monkeypatch: pytest.
 def test_upload_firefly_payloads_handles_general_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _make_payload()
 
-    def boom(settings: FireflySettings, payload_arg: FireflyPayload) -> None:
+    def boom(settings: FireflyPreimporterSettings, payload_arg: FireflyPayload) -> None:
         _ = (settings, payload_arg)
         raise RuntimeError('boom')
 
@@ -576,7 +580,7 @@ def test_upload_firefly_payloads_handles_batch_tag_request_exception(monkeypatch
     payload = _make_payload()
     monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_external_ids', lambda *_a, **_k: set())
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflyPreimporterSettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
         return SimpleNamespace(
             status_code=200,
@@ -613,7 +617,7 @@ def test_upload_firefly_payloads_skips_client_side_duplicates(monkeypatch: pytes
     payload = _make_payload()
     upload_called = False
 
-    def fake_upload_transactions(_settings: FireflySettings, _payload_arg: FireflyPayload) -> None:
+    def fake_upload_transactions(_settings: FireflyPreimporterSettings, _payload_arg: FireflyPayload) -> None:
         nonlocal upload_called
         upload_called = True
 
@@ -645,7 +649,7 @@ def test_upload_firefly_payloads_skips_dedup_when_duplicates_allowed(monkeypatch
         fetch_called = True
         return {'abc'}
 
-    def fake_upload_transactions(settings: FireflySettings, payload_arg: FireflyPayload) -> SimpleNamespace:
+    def fake_upload_transactions(settings: FireflyPreimporterSettings, payload_arg: FireflyPayload) -> SimpleNamespace:
         _ = (settings, payload_arg)
         return SimpleNamespace(status_code=200, text='{}', json=lambda: {'data': []})
 
