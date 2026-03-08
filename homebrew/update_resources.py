@@ -18,8 +18,32 @@ LOCK = REPO / "uv.lock"
 PYPROJECT = REPO / "pyproject.toml"
 
 
-def parse_lock() -> dict[str, dict]:
-    """Return {name: {version, sdist_url, sdist_sha, deps}} for all packages in uv.lock."""
+def _read_pyproject() -> dict:
+    with PYPROJECT.open("rb") as f:
+        return tomllib.load(f)
+
+
+def get_python_cpver() -> str:
+    """Return e.g. 'cp313' from requires-python = '>=3.13' in pyproject.toml."""
+    req = _read_pyproject().get("project", {}).get("requires-python", "")
+    m = re.search(r"(\d+)\.(\d+)", req)
+    return f"cp{m.group(1)}{m.group(2)}" if m else ""
+
+
+def _pick_wheel(candidates: list[tuple[str, str, str]], cpver: str) -> tuple[str | None, str | None]:
+    """From a list of (url, sha, filename) tuples, prefer cpver match, else first."""
+    if not candidates:
+        return None, None
+    if cpver:
+        for url, sha, fname in candidates:
+            if cpver in fname:
+                return url, sha
+    return candidates[0][0], candidates[0][1]
+
+
+def parse_lock(cpver: str = "") -> dict[str, dict]:
+    """Return {name: {version, sdist_url, sdist_sha, any_url, any_sha, arm64_url,
+    arm64_sha, x86_url, x86_sha, deps}} for all packages in uv.lock."""
     text = LOCK.read_text()
     packages: dict[str, dict] = {}
     for block in text.split("\n[[package]]\n"):
@@ -27,11 +51,37 @@ def parse_lock() -> dict[str, dict]:
         ver_m = re.search(r'^version = "([^"]+)"', block, re.MULTILINE)
         sdist_m = re.search(r'sdist = \{ url = "([^"]+)", hash = "sha256:([^"]+)"', block)
         deps = re.findall(r'  \{ name = "([^"]+)" \}', block)
+
+        any_url = any_sha = None
+        arm64_candidates: list[tuple[str, str, str]] = []
+        x86_candidates: list[tuple[str, str, str]] = []
+
+        wheels_m = re.search(r"wheels = \[(.*?)\]", block, re.DOTALL)
+        if wheels_m:
+            for entry in re.finditer(r'\{ url = "([^"]+)", hash = "sha256:([^"]+)"', wheels_m.group(1)):
+                url, sha = entry.group(1), entry.group(2)
+                fname = url.rsplit("/", 1)[-1]
+                if "none-any" in fname:
+                    any_url, any_sha = url, sha
+                elif re.search(r"macosx_\d+_\d+_arm64", fname):
+                    arm64_candidates.append((url, sha, fname))
+                elif re.search(r"macosx_\d+_\d+_x86_64", fname):
+                    x86_candidates.append((url, sha, fname))
+
+        arm64_url, arm64_sha = _pick_wheel(arm64_candidates, cpver)
+        x86_url, x86_sha = _pick_wheel(x86_candidates, cpver)
+
         if name_m:
             packages[name_m.group(1)] = {
                 "version": ver_m.group(1) if ver_m else None,
                 "sdist_url": sdist_m.group(1) if sdist_m else None,
                 "sdist_sha": sdist_m.group(2) if sdist_m else None,
+                "any_url": any_url,
+                "any_sha": any_sha,
+                "arm64_url": arm64_url,
+                "arm64_sha": arm64_sha,
+                "x86_url": x86_url,
+                "x86_sha": x86_sha,
                 "deps": deps,
             }
     return packages
@@ -39,9 +89,7 @@ def parse_lock() -> dict[str, dict]:
 
 def get_direct_runtime_deps() -> set[str]:
     """Read [project].dependencies from pyproject.toml and return bare package names."""
-    with PYPROJECT.open("rb") as f:
-        data = tomllib.load(f)
-    deps = data.get("project", {}).get("dependencies", [])
+    deps = _read_pyproject().get("project", {}).get("dependencies", [])
     return {re.split(r"[<>=!;\s]", dep)[0].strip() for dep in deps}
 
 
@@ -58,8 +106,46 @@ def get_runtime_packages(packages: dict[str, dict], direct: set[str]) -> set[str
     return seen
 
 
+def make_resource_block(name: str, info: dict) -> str | None:
+    """Return the Homebrew resource block string for a package, or None to skip."""
+    # Priority 1: universal wheel (py3-none-any) — works on all platforms, no build
+    if info["any_url"]:
+        return (
+            f'  resource "{name}" do\n'
+            f'    url "{info["any_url"]}"\n'
+            f'    sha256 "{info["any_sha"]}"\n'
+            f"  end"
+        )
+    # Priority 2: macOS platform-specific wheels — compiled extension, no Rust needed
+    if info["arm64_url"] and info["x86_url"]:
+        return (
+            f"  on_arm do\n"
+            f'    resource "{name}" do\n'
+            f'      url "{info["arm64_url"]}"\n'
+            f'      sha256 "{info["arm64_sha"]}"\n'
+            f"    end\n"
+            f"  end\n"
+            f"  on_intel do\n"
+            f'    resource "{name}" do\n'
+            f'      url "{info["x86_url"]}"\n'
+            f'      sha256 "{info["x86_sha"]}"\n'
+            f"    end\n"
+            f"  end"
+        )
+    # Priority 3: sdist fallback (pure Python packages with no wheels, e.g. ofxtools)
+    if info["sdist_url"]:
+        return (
+            f'  resource "{name}" do\n'
+            f'    url "{info["sdist_url"]}"\n'
+            f'    sha256 "{info["sdist_sha"]}"\n'
+            f"  end"
+        )
+    return None
+
+
 def main() -> None:
-    packages = parse_lock()
+    cpver = get_python_cpver()
+    packages = parse_lock(cpver)
     direct = get_direct_runtime_deps()
     runtime = get_runtime_packages(packages, direct)
 
@@ -69,15 +155,11 @@ def main() -> None:
         if not info:
             print(f"WARNING: {pkg} not found in uv.lock, skipping", file=sys.stderr)
             continue
-        if not info["sdist_url"]:
-            print(f"WARNING: {pkg} has no sdist in uv.lock, skipping", file=sys.stderr)
+        block = make_resource_block(pkg, info)
+        if block is None:
+            print(f"WARNING: {pkg} has no wheel or sdist in uv.lock, skipping", file=sys.stderr)
             continue
-        blocks.append(
-            f'  resource "{pkg}" do\n'
-            f'    url "{info["sdist_url"]}"\n'
-            f'    sha256 "{info["sdist_sha"]}"\n'
-            f"  end"
-        )
+        blocks.append(block)
         print(f"  {pkg}=={info['version']}")
 
     resource_block = "\n\n".join(blocks)
