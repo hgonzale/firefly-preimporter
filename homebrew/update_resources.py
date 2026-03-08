@@ -9,58 +9,79 @@ from __future__ import annotations
 
 import re
 import sys
+import tomllib
 from pathlib import Path
-
-import requests  # noqa: PLC0415
 
 REPO = Path(__file__).parent.parent
 TEMPLATE = REPO / "homebrew" / "firefly-preimporter.rb.template"
 LOCK = REPO / "uv.lock"
-
-# Runtime dep names (direct + transitive, no dev deps)
-RUNTIME_PACKAGES = {"requests", "ofxtools", "urllib3", "certifi", "charset-normalizer", "idna"}
+PYPROJECT = REPO / "pyproject.toml"
 
 
-def get_sdist_info(name: str, version: str) -> tuple[str, str]:
-    """Return (url, sha256) for the sdist of name==version from PyPI."""
-    resp = requests.get(f"https://pypi.org/pypi/{name}/{version}/json", timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    for f in data["urls"]:
-        if f["packagetype"] == "sdist":
-            return f["url"], f["digests"]["sha256"]
-    raise SystemExit(f"No sdist found for {name}=={version}")
-
-
-def parse_lock() -> dict[str, str]:
-    """Return {name: version} for all packages in uv.lock."""
+def parse_lock() -> dict[str, dict]:
+    """Return {name: {version, sdist_url, sdist_sha, deps}} for all packages in uv.lock."""
     text = LOCK.read_text()
-    return {
-        m.group(1): m.group(2)
-        for m in re.finditer(r'^name = "([^"]+)"\nversion = "([^"]+)"', text, re.MULTILINE)
-    }
+    packages: dict[str, dict] = {}
+    for block in text.split("\n[[package]]\n"):
+        name_m = re.search(r'^name = "([^"]+)"', block, re.MULTILINE)
+        ver_m = re.search(r'^version = "([^"]+)"', block, re.MULTILINE)
+        sdist_m = re.search(r'sdist = \{ url = "([^"]+)", hash = "sha256:([^"]+)"', block)
+        deps = re.findall(r'  \{ name = "([^"]+)" \}', block)
+        if name_m:
+            packages[name_m.group(1)] = {
+                "version": ver_m.group(1) if ver_m else None,
+                "sdist_url": sdist_m.group(1) if sdist_m else None,
+                "sdist_sha": sdist_m.group(2) if sdist_m else None,
+                "deps": deps,
+            }
+    return packages
+
+
+def get_direct_runtime_deps() -> set[str]:
+    """Read [project].dependencies from pyproject.toml and return bare package names."""
+    with PYPROJECT.open("rb") as f:
+        data = tomllib.load(f)
+    deps = data.get("project", {}).get("dependencies", [])
+    return {re.split(r"[<>=!;\s]", dep)[0].strip() for dep in deps}
+
+
+def get_runtime_packages(packages: dict[str, dict], direct: set[str]) -> set[str]:
+    """BFS from direct runtime deps to collect all transitive runtime packages."""
+    seen: set[str] = set()
+    queue = list(direct)
+    while queue:
+        pkg = queue.pop()
+        if pkg in seen:
+            continue
+        seen.add(pkg)
+        queue.extend(packages.get(pkg, {}).get("deps", []))
+    return seen
 
 
 def main() -> None:
-    locked = parse_lock()
+    packages = parse_lock()
+    direct = get_direct_runtime_deps()
+    runtime = get_runtime_packages(packages, direct)
+
     blocks: list[str] = []
-    for pkg in sorted(RUNTIME_PACKAGES):
-        version = locked.get(pkg)
-        if not version:
+    for pkg in sorted(runtime):
+        info = packages.get(pkg)
+        if not info:
             print(f"WARNING: {pkg} not found in uv.lock, skipping", file=sys.stderr)
             continue
-        url, sha256 = get_sdist_info(pkg, version)
+        if not info["sdist_url"]:
+            print(f"WARNING: {pkg} has no sdist in uv.lock, skipping", file=sys.stderr)
+            continue
         blocks.append(
             f'  resource "{pkg}" do\n'
-            f'    url "{url}"\n'
-            f'    sha256 "{sha256}"\n'
+            f'    url "{info["sdist_url"]}"\n'
+            f'    sha256 "{info["sdist_sha"]}"\n'
             f"  end"
         )
-        print(f"  {pkg}=={version}")
+        print(f"  {pkg}=={info['version']}")
 
     resource_block = "\n\n".join(blocks)
     template = TEMPLATE.read_text()
-    # Replace everything between the two marker comments
     new_template = re.sub(
         r"(  # --- begin generated resources ---\n).*?(  # --- end generated resources ---)",
         rf"\g<1>{resource_block}\n\2",
