@@ -5,7 +5,7 @@
 Run integration tests against the real config and live APIs before tagging a new version:
 
 ```bash
-pytest tests/integration/ -v
+tox -e integration
 ```
 
 Tests are skipped automatically if `~/.local/etc/firefly_import.toml` is absent.
