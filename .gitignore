@@ -6,7 +6,6 @@ __pycache__/
 .tox/
 .venv/
 .cache/
-uv.lock
 .DS_Store
 dev-notes.md
 homebrew/Formula/
