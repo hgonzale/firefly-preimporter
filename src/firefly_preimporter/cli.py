@@ -335,10 +335,11 @@ def _prompt_account_id(
             for reason in reasons:
                 print(f'  - {reason}')
 
-    # --- Determine default (single suggestion only) ---
+    # --- Determine default (single high-confidence suggestion) ---
     default_idx: int | None = None
     default_account: dict[str, object] | None = None
-    if is_single:
+    high_count = sum(1 for s in suggestions if s.confidence == 'high')
+    if suggestions and suggestions[0].confidence == 'high' and high_count == 1:
         for idx, account in enumerate(accounts, start=1):
             if str(account.get('id')) == suggestions[0].account_id:
                 default_idx = idx
