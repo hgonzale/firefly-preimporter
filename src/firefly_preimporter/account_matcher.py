@@ -26,7 +26,7 @@ class AccountSuggestion:
     account_id: str
     account_name: str
     confidence: str  # "high" | "medium" | "low"
-    reasoning: str
+    reasons: list[str]
 
 
 def _build_prompt(
@@ -74,7 +74,8 @@ def _build_prompt(
         '',
         'Respond with valid JSON only (no markdown). Return up to 3 ranked suggestions, most likely first:',
         '{"suggestions": [{"account_id": <integer>, "confidence": "high"|"medium"|"low"}, ...],'
-        ' "reasoning": "<1-2 sentences>"}',
+        ' "reasons": ["<brief reason>", ...]}',
+        'Include at most 3 reasons. Each reason must fit on one line. Omit filler; be direct.',
     ]
     return '\n'.join(lines)
 
@@ -113,7 +114,8 @@ def suggest_account(
         return []
 
     raw_suggestions = parsed.get('suggestions', [])
-    reasoning = str(parsed.get('reasoning', ''))
+    raw_reasons = parsed.get('reasons', [])
+    reasons = [str(r) for r in raw_reasons if r] if isinstance(raw_reasons, list) else []
     if not isinstance(raw_suggestions, list):
         LOGGER.debug('Azure AI "suggestions" field is not a list')
         return []
@@ -143,7 +145,7 @@ def suggest_account(
                 account_id=account_id,
                 account_name=account_names.get(account_id, f'Account {account_id}'),
                 confidence=confidence,
-                reasoning=reasoning,
+                reasons=reasons,
             )
         )
 

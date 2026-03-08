@@ -505,7 +505,7 @@ def upload_firefly_payloads(
                 emit(f'Firefly upload {status_label} - duplicate (skipped)')
                 continue
         if dry_run:
-            emit(f'Firefly upload {status_label} - dry-run (skipped)')
+            emit(f'[dry-run] Firefly upload {status_label} (skipped)')
             continue
         try:
             response = upload_transactions(settings, payload)

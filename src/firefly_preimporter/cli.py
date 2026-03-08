@@ -327,7 +327,13 @@ def _prompt_account_id(
     if suggestions:
         print()
         ai_prefix = _style_text('[AI]', 'green' if is_single else 'yellow', 'bold', enabled=color)
-        print(f'{ai_prefix} {suggestions[0].reasoning}')
+        reasons = suggestions[0].reasons
+        if len(reasons) == 1:
+            print(f'{ai_prefix} {reasons[0]}')
+        elif reasons:
+            print(ai_prefix)
+            for reason in reasons:
+                print(f'  - {reason}')
 
     # --- Determine default (single suggestion only) ---
     default_idx: int | None = None
@@ -450,7 +456,7 @@ def _write_and_upload(
             json_payload = json.dumps(json_config, indent=2, sort_keys=True)
             print('config.json (dry-run preview):', file=sys.stderr)
             print(json_payload, file=sys.stderr)
-        _emit(f'Dry-run: skipped uploading {result.job.source_path.name}.', args)
+        _emit(f'[dry-run] Uploading {result.job.source_path.name} (skipped).', args)
     elif upload_to_fidi and uploader and result.has_transactions():
         if account_id is None:
             raise ValueError('FiDI upload requires a resolved account id')
@@ -612,15 +618,6 @@ def main(argv: list[str] | None = None) -> int:
         try:
             combined_transactions.extend(result.transactions)
             _emit(result.summary(), args)
-            if args.verbose and upload_requested:
-                for txn in result.transactions:
-                    _emit(
-                        (
-                            f'Uploading transaction {txn.transaction_id} '
-                            f'({txn.date}, {txn.amount}) from {result.job.source_path.name}'
-                        ),
-                        args,
-                    )
             for warning in result.warnings:
                 _emit(f'Warning: {warning}', args, error=True)
             account_id: str | None = None
@@ -633,6 +630,16 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif getattr(args, 'account_id', None):
                 account_id = str(args.account_id)
+            if args.verbose and upload_requested and account_id:
+                dry_run_tag = '[dry-run] ' if args.dry_run else ''
+                for txn in result.transactions:
+                    _emit(
+                        (
+                            f'{dry_run_tag}Uploading transaction {txn.transaction_id} '
+                            f'({txn.date}, {txn.amount}) from {result.job.source_path.name}'
+                        ),
+                        args,
+                    )
             if payload_builder and account_id and settings is not None:
                 currency_code = _get_account_currency_code(account_id, _get_asset_accounts(args, settings))
                 payload_builder.add_result(result, account_id=account_id, currency_code=currency_code)
