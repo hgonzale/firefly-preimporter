@@ -84,6 +84,7 @@ def process_ofx(job: ProcessingJob) -> ProcessingResult:
     transactions: list[Transaction] = []
     warnings_list: list[str] = []
     account_id: str | None = None
+    seen_ids: dict[str, int] = {}
 
     for acct_id, record in _iter_ofx_transactions(path):
         account_id = account_id or acct_id
@@ -101,8 +102,12 @@ def process_ofx(job: ProcessingJob) -> ProcessingResult:
             warnings_list.append(str(exc))
             continue
         fitid = record.fitid if hasattr(record, 'fitid') else None
+        raw_id = _transaction_id(date_value, description, amount_value, fitid)
+        occurrence = seen_ids.get(raw_id, 0) + 1
+        seen_ids[raw_id] = occurrence
+        final_id = raw_id if occurrence == 1 else f'{raw_id}-{occurrence}'
         txn = Transaction(
-            transaction_id=_transaction_id(date_value, description, amount_value, fitid),
+            transaction_id=final_id,
             date=date_value,
             description=description,
             amount=amount_value,

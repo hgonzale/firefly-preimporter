@@ -4,6 +4,7 @@ import pytest
 
 from firefly_preimporter.models import ProcessingJob, SourceFormat
 from firefly_preimporter.processors.csv_processor import (
+    generate_transaction_id,
     normalize_amount,
     normalize_date,
     process_csv,
@@ -122,3 +123,71 @@ def test_normalize_date_rejects_european_formats() -> None:
 def test_normalize_amount_invalid() -> None:
     with pytest.raises(ValueError, match='unrecognized amount'):
         normalize_amount('abc')
+
+
+def _csv_with_rows(tmp_path: Path, rows: list[str]) -> Path:
+    file_path = tmp_path / 'stmt.csv'
+    file_path.write_text('date,description,amount\n' + '\n'.join(rows), encoding='utf-8')
+    return file_path
+
+
+def test_identical_rows_get_distinct_ids(tmp_path: Path) -> None:
+    """Two rows with identical content must produce different transaction IDs."""
+    f = _csv_with_rows(tmp_path, ['2026-01-15,Coffee,-5.00', '2026-01-15,Coffee,-5.00'])
+    job = ProcessingJob(source_path=f, source_format=SourceFormat.CSV)
+    result = process_csv(job)
+    assert len(result.transactions) == 2
+    id1, id2 = result.transactions[0].transaction_id, result.transactions[1].transaction_id
+    assert id1 != id2
+    base = generate_transaction_id('2026-01-15', 'Coffee', '-5.00')
+    assert id1 == base
+    assert id2 == f'{base}-2'
+
+
+def test_three_identical_rows_get_distinct_ids(tmp_path: Path) -> None:
+    """Three rows with identical content produce -2 and -3 suffixes."""
+    row = '2026-01-15,Coffee,-5.00'
+    f = _csv_with_rows(tmp_path, [row, row, row])
+    job = ProcessingJob(source_path=f, source_format=SourceFormat.CSV)
+    result = process_csv(job)
+    assert len(result.transactions) == 3
+    base = generate_transaction_id('2026-01-15', 'Coffee', '-5.00')
+    assert result.transactions[0].transaction_id == base
+    assert result.transactions[1].transaction_id == f'{base}-2'
+    assert result.transactions[2].transaction_id == f'{base}-3'
+
+
+def test_unique_rows_ids_are_unchanged(tmp_path: Path) -> None:
+    """Rows with distinct content are not affected by deduplication logic."""
+    f = _csv_with_rows(tmp_path, ['2026-01-15,Coffee,-5.00', '2026-01-16,Groceries,-40.00'])
+    job = ProcessingJob(source_path=f, source_format=SourceFormat.CSV)
+    result = process_csv(job)
+    assert len(result.transactions) == 2
+    assert result.transactions[0].transaction_id == generate_transaction_id('2026-01-15', 'Coffee', '-5.00')
+    assert result.transactions[1].transaction_id == generate_transaction_id('2026-01-16', 'Groceries', '-40.00')
+
+
+def test_id_generation_is_stable_across_runs(tmp_path: Path) -> None:
+    """Processing the same CSV twice produces identical IDs (cross-session dedup stability)."""
+    rows = ['2026-01-15,Coffee,-5.00', '2026-01-15,Coffee,-5.00', '2026-01-16,Groceries,-40.00']
+    f = _csv_with_rows(tmp_path, rows)
+    job = ProcessingJob(source_path=f, source_format=SourceFormat.CSV)
+    ids_first = [t.transaction_id for t in process_csv(job).transactions]
+    ids_second = [t.transaction_id for t in process_csv(job).transactions]
+    assert ids_first == ids_second
+
+
+def test_native_transaction_id_collision_disambiguated(tmp_path: Path) -> None:
+    """If the CSV provides duplicate native IDs, they are also disambiguated."""
+    file_path = tmp_path / 'stmt.csv'
+    file_path.write_text(
+        'date,description,amount,reference\n'
+        '2026-01-15,Coffee,-5.00,REF001\n'
+        '2026-01-15,Coffee,-5.00,REF001\n',
+        encoding='utf-8',
+    )
+    job = ProcessingJob(source_path=file_path, source_format=SourceFormat.CSV)
+    result = process_csv(job)
+    assert len(result.transactions) == 2
+    assert result.transactions[0].transaction_id == 'REF001'
+    assert result.transactions[1].transaction_id == 'REF001-2'

@@ -100,6 +100,7 @@ def iter_transactions(rows: Iterable[list[str]]) -> Iterator[Transaction]:
 
     column_map: dict[str, int] | None = None
     optional_map: dict[str, int] = {}
+    seen_ids: dict[str, int] = {}
     for row in rows:
         if not row or all(not cell.strip() for cell in row):
             continue
@@ -129,8 +130,13 @@ def iter_transactions(rows: Iterable[list[str]]) -> Iterator[Transaction]:
         if 'transaction_id' in optional_map:
             transaction_id = row[optional_map['transaction_id']].strip() or None
 
+        raw_id = transaction_id or generate_transaction_id(normalized_date, description, normalized_amount)
+        occurrence = seen_ids.get(raw_id, 0) + 1
+        seen_ids[raw_id] = occurrence
+        final_id = raw_id if occurrence == 1 else f'{raw_id}-{occurrence}'
+
         yield Transaction(
-            transaction_id=transaction_id or generate_transaction_id(normalized_date, description, normalized_amount),
+            transaction_id=final_id,
             date=normalized_date,
             description=description,
             amount=normalized_amount,
