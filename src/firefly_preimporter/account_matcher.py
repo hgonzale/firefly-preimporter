@@ -100,7 +100,6 @@ def suggest_account(
         response = client.chat.completions.create(
             model=ai_config.model,
             messages=[{'role': 'user', 'content': prompt}],
-            temperature=0,
         )
     except OpenAIError as exc:
         LOGGER.debug('Azure AI account suggestion API error: %s', exc)
