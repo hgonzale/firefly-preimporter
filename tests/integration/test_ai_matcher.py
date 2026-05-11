@@ -27,4 +27,4 @@ def test_ai_suggestion_returns_results(settings):
     assert len(suggestions) >= 1, 'Expected at least one suggestion from the AI'
     assert suggestions[0].account_id in {'1', '2'}
     assert suggestions[0].confidence in {'high', 'medium', 'low'}
-    assert suggestions[0].reasoning
+    assert suggestions[0].reasons
