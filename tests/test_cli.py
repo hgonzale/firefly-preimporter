@@ -138,6 +138,7 @@ def test_main_respects_output_dir(
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
+    monkeypatch.setattr(cli, 'DEFAULT_CONFIG_PATH', Path('/nonexistent'))
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     recorded: dict[str, Path | None] = {}
@@ -160,6 +161,7 @@ def test_main_writes_default_file(
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
+    monkeypatch.setattr(cli, 'DEFAULT_CONFIG_PATH', Path('/nonexistent'))
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
     recorded: dict[str, Path | None] = {}
@@ -186,6 +188,7 @@ def test_main_requires_upload_for_dry_run(monkeypatch: pytest.MonkeyPatch, dummy
         job=dummy_job,
         transactions=[Transaction(transaction_id='1', date='2024-01-01', description='Coffee', amount='-3.50')],
     )
+    monkeypatch.setattr(cli, 'DEFAULT_CONFIG_PATH', Path('/nonexistent'))
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     monkeypatch.setattr(cli, '_process_job', lambda _job: result)
 
@@ -428,6 +431,7 @@ def test_main_rejects_stdout_with_output(
     dummy_job: ProcessingJob,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(cli, 'DEFAULT_CONFIG_PATH', Path('/nonexistent'))
     monkeypatch.setattr(cli, 'gather_jobs', lambda _targets: [dummy_job])
     with pytest.raises(ValueError, match='--stdout is incompatible'):
         cli.main([str(tmp_path / 'file.csv'), '--stdout', '--output', 'out.csv'])
@@ -465,7 +469,8 @@ def test_main_reports_dry_run_upload(
     finally:
         cli.LOGGER.removeHandler(handler)
     assert exit_code == 0
-    assert 'Dry-run: skipped uploading' in log_stream.getvalue()
+    assert '[dry-run] Uploading' in log_stream.getvalue()
+    assert 'skipped' in log_stream.getvalue()
     assert fetch_calls['count'] == 1
 
 
@@ -893,13 +898,13 @@ def _firefly_settings_with_ai() -> FireflyPreimporterSettings:
     return _settings(azure_ai=_azure_settings())
 
 
-def _ai_suggestions(suggestions: list[dict[str, Any]], reasoning: str = 'Test reasoning.') -> list[AccountSuggestion]:
+def _ai_suggestions(suggestions: list[dict[str, Any]], reason: str = 'Test reasoning.') -> list[AccountSuggestion]:
     return [
         AccountSuggestion(
             account_id=str(s['account_id']),
             account_name=f'Account {s["account_id"]}',
             confidence=str(s['confidence']),
-            reasoning=reasoning,
+            reasons=[reason],
         )
         for s in suggestions
     ]

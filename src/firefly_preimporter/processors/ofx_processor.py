@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import warnings
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -33,9 +34,11 @@ TRANSACTION_ID_LENGTH = 15  # Truncated SHA256 hash length (15 hex chars = 60 bi
 def _iter_ofx_transactions(path: Path) -> Iterator[tuple[str | None, OFXTransaction]]:
     """Yield ``(account_id, transaction)`` tuples extracted via ``ofxtools``."""
 
+    # Apple Card declares CHARSET:1252 but exports UTF-8. CHARSET:NONE tells
+    # ofxtools to decode as utf_8. Files declaring ISO-8859-1 are unaffected.
+    raw = path.read_bytes().replace(b'CHARSET:1252', b'CHARSET:NONE', 1)
     parser = OFXTree()
-    with path.open('rb') as handle:
-        parser.parse(handle)
+    parser.parse(io.BytesIO(raw))
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=OFXTypeWarning)

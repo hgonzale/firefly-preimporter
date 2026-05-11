@@ -112,3 +112,31 @@ def test_ofx_unique_records_ids_are_unchanged(monkeypatch: pytest.MonkeyPatch, t
     assert len(result.transactions) == 2
     assert result.transactions[0].transaction_id == 'FIT001'
     assert result.transactions[1].transaction_id == 'FIT002'
+
+
+def test_iter_ofx_parses_utf8_content_declared_as_charset_1252(tmp_path: Path) -> None:
+    """CHARSET:1252 header with UTF-8 body (Apple Card export bug) parses correctly."""
+    # \xc3\x8f = U+00CF (Ï) in UTF-8; byte 0x8f is undefined in cp1252 and would
+    # raise UnicodeDecodeError if the declared charset were used verbatim.
+    ofx_bytes = (
+        b'OFXHEADER:100\r\nDATA:OFXSGML\r\nVERSION:102\r\nSECURITY:NONE\r\n'
+        b'ENCODING:USASCII\r\nCHARSET:1252\r\nCOMPRESSION:NONE\r\n'
+        b'OLDFILEUID:NONE\r\nNEWFILEUID:NONE\r\n\r\n'
+        b'<OFX>'
+        b'<SIGNONMSGSRSV1><SONRS><STATUS><CODE>0<SEVERITY>INFO</STATUS>'
+        b'<DTSERVER>20260101120000[0:GMT]<LANGUAGE>ENG</SONRS></SIGNONMSGSRSV1>'
+        b'<BANKMSGSRSV1><STMTTRNRS><TRNUID>1001<STATUS><CODE>0<SEVERITY>INFO</STATUS>'
+        b'<STMTRS><CURDEF>USD<BANKACCTFROM><BANKID>123<ACCTID>9999<ACCTTYPE>CHECKING</BANKACCTFROM>'
+        b'<BANKTRANLIST><DTSTART>20260101<DTEND>20260131'
+        b'<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260115120000[0:GMT]<TRNAMT>-10.00<FITID>TX001'
+        b'<NAME>CAF\xc3\x8f TEST</STMTTRN>'
+        b'</BANKTRANLIST><LEDGERBAL><BALAMT>100.00<DTASOF>20260131</LEDGERBAL>'
+        b'</STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>'
+    )
+    ofx_file = tmp_path / 'apple.ofx'
+    ofx_file.write_bytes(ofx_bytes)
+
+    results = list(ofx_processor._iter_ofx_transactions(ofx_file))
+    assert len(results) == 1
+    _, txn = results[0]
+    assert txn.name == 'CAFÏ TEST'  # U+00CF = Ï

@@ -117,7 +117,7 @@ def test_suggest_account_returns_empty_when_no_accounts() -> None:
 def test_suggest_account_happy_path_single() -> None:
     response = json.dumps({
         'suggestions': [{'account_id': 3, 'confidence': 'high'}],
-        'reasoning': 'Filename contains 4521 and transaction history matches.',
+        'reasons': ['Filename contains 4521 and transaction history matches.'],
     })
     with patch('firefly_preimporter.account_matcher.OpenAI', _mock_client(response)):
         result = suggest_account('statement_4521.csv', _txns(), _accounts(), _recent(), ai_config=_ai_config())
@@ -126,7 +126,7 @@ def test_suggest_account_happy_path_single() -> None:
     assert result[0].account_id == '3'
     assert result[0].account_name == 'Chase Freedom'
     assert result[0].confidence == 'high'
-    assert '4521' in result[0].reasoning
+    assert '4521' in result[0].reasons[0]
 
 
 def test_suggest_account_returns_up_to_three() -> None:
