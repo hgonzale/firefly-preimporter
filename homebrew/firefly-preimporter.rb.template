@@ -5,11 +5,13 @@ class FireflyPreimporter < Formula
   version "@@VERSION@@"
 
   depends_on "python@3.13"
+  depends_on "rust" => :build
   depends_on "uv"
 
   def install
     ENV["UV_PROJECT_ENVIRONMENT"] = libexec.to_s
     system "uv", "sync", "--frozen", "--no-dev", "--no-editable",
+           "--no-binary", "jiter",
            "--python", Formula["python@3.13"].opt_bin/"python3.13"
     bin.install_symlink (libexec/"bin").children.select(&:file?).reject { |f|
       f.basename.to_s.start_with?("python")
