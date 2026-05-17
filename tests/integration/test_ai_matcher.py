@@ -1,12 +1,18 @@
 """Integration test: AI account matcher against the real Azure AI endpoint."""
+
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import pytest
 
 from firefly_preimporter.account_matcher import suggest_account
 
+if TYPE_CHECKING:
+    from firefly_preimporter.config import FireflyPreimporterSettings
 
-def test_ai_suggestion_returns_results(settings):
+
+def test_ai_suggestion_returns_results(settings: FireflyPreimporterSettings) -> None:
     """suggest_account makes a real API call and returns at least one suggestion."""
     if settings.common.azure_ai is None:
         pytest.skip('No [common.azure-ai] config — skipping AI integration test')

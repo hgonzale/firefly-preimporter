@@ -181,9 +181,7 @@ def test_native_transaction_id_collision_disambiguated(tmp_path: Path) -> None:
     """If the CSV provides duplicate native IDs, they are also disambiguated."""
     file_path = tmp_path / 'stmt.csv'
     file_path.write_text(
-        'date,description,amount,reference\n'
-        '2026-01-15,Coffee,-5.00,REF001\n'
-        '2026-01-15,Coffee,-5.00,REF001\n',
+        'date,description,amount,reference\n2026-01-15,Coffee,-5.00,REF001\n2026-01-15,Coffee,-5.00,REF001\n',
         encoding='utf-8',
     )
     job = ProcessingJob(source_path=file_path, source_format=SourceFormat.CSV)

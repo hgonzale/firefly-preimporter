@@ -59,9 +59,7 @@ def _make_record(*, date: datetime, amount: str, name: str, fitid: str | None) -
     return SimpleNamespace(dtposted=date, trnamt=amount, name=name, memo='', fitid=fitid)
 
 
-def test_ofx_identical_records_without_fitid_get_distinct_ids(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_ofx_identical_records_without_fitid_get_distinct_ids(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Two OFX records with identical content and no fitid must get distinct IDs."""
     job = _make_job(tmp_path)
     rec = _make_record(date=datetime(2026, 1, 15, tzinfo=UTC), amount='-5.00', name='Coffee', fitid=None)
