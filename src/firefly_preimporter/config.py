@@ -8,7 +8,7 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 LOGGER = logging.getLogger(__name__)
 
@@ -76,16 +76,18 @@ def _prepare_settings(raw: Mapping[str, Any]) -> FireflyPreimporterSettings:
     if upload_choice not in {'fidi', 'firefly'}:
         upload_choice = ''
 
-    raw_azure = raw_common.get('azure_ai') or {}
+    raw_azure: object = raw_common.get('azure_ai') or {}
     azure_ai: AzureAiSettings | None = None
-    if isinstance(raw_azure, Mapping) and raw_azure.get('endpoint') and raw_azure.get('api_key'):
-        azure_ai = AzureAiSettings(
-            endpoint=str(raw_azure['endpoint']),
-            api_key=str(raw_azure['api_key']),
-            model=str(raw_azure.get('model', 'gpt-4o-mini')),
-            history_days=int(raw_azure.get('history_days', 60)),
-            max_history_per_account=int(raw_azure.get('max_history_per_account', 100)),
-        )
+    if isinstance(raw_azure, Mapping):
+        az = cast('Mapping[str, object]', raw_azure)
+        if az.get('endpoint') and az.get('api_key'):
+            azure_ai = AzureAiSettings(
+                endpoint=str(az['endpoint']),
+                api_key=str(az['api_key']),
+                model=str(az.get('model') or 'gpt-4o-mini'),
+                history_days=int(str(az.get('history_days') or 60)),
+                max_history_per_account=int(str(az.get('max_history_per_account') or 100)),
+            )
 
     common = CommonSettings(
         personal_access_token=str(raw_common['personal_access_token']),

@@ -10,7 +10,7 @@ from firefly_preimporter.output import build_csv_payload, build_json_config, wri
 TOKEN_PLACEHOLDER = 'sec' + 'ret'
 IMPORT_PLACEHOLDER = 'tok' + 'en'
 
-_FULL_JSON_CONFIG = {
+_FULL_JSON_CONFIG: dict[str, object] = {
     'date': 'Y-m-d',
     'delimiter': 'comma',
     'headers': True,
@@ -121,14 +121,14 @@ def test_write_output_writes_file(tmp_path: Path) -> None:
 
 def test_build_csv_payload_requires_iterable() -> None:
     with pytest.raises(TypeError):
-        build_csv_payload(123)  # type: ignore[arg-type]
+        build_csv_payload(123)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_build_json_config_requires_settings() -> None:
     with pytest.raises(TypeError):
-        build_json_config(object(), account_id=None)  # type: ignore[arg-type]
+        build_json_config(object(), account_id=None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_write_output_requires_processing_result() -> None:
     with pytest.raises(TypeError):
-        write_output(object(), output_path=None)  # type: ignore[arg-type]
+        write_output(object(), output_path=None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]

@@ -41,9 +41,9 @@ class ProcessingResult:
     """Outcome of processing an input file."""
 
     job: ProcessingJob
-    transactions: list[Transaction] = field(default_factory=list)
+    transactions: list[Transaction] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
     account_id: str | None = None
-    warnings: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
 
     def has_transactions(self) -> bool:
         """Return ``True`` if the result contains at least one transaction."""
@@ -71,7 +71,7 @@ class FireflyTransactionSplit:
     notes: str
     error_if_duplicate_hash: bool
     internal_reference: str
-    tags: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
     source_id: int | None = None
     destination_id: int | None = None
     source_name: str | None = None

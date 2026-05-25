@@ -6,9 +6,9 @@ import json
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from openai import OpenAI, OpenAIError
+import requests
 
 if TYPE_CHECKING:
     from firefly_preimporter.config import AzureAiSettings
@@ -53,8 +53,9 @@ def _build_prompt(
         name = ''
         acct_number = ''
         if isinstance(attributes, Mapping):
-            name = str(attributes.get('name') or '').strip()
-            acct_number = str(attributes.get('account_number') or '').strip()
+            attrs = cast('Mapping[str, object]', attributes)
+            name = str(attrs.get('name') or '').strip()
+            acct_number = str(attrs.get('account_number') or '').strip()
         number_suffix = f' (account number ends in {acct_number[-4:]})' if len(acct_number) >= 4 else ''
         lines.append(f'ID {acct_id}: "{name}"{number_suffix}')
         history = recent_txns_by_account.get(acct_id, [])
@@ -96,17 +97,20 @@ def suggest_account(
         return []
 
     prompt = _build_prompt(filename, new_transactions, accounts, recent_txns_by_account)
-    client = OpenAI(base_url=ai_config.endpoint, api_key=ai_config.api_key)
+    url = ai_config.endpoint.rstrip('/') + '/chat/completions'
     try:
-        response = client.chat.completions.create(
-            model=ai_config.model,
-            messages=[{'role': 'user', 'content': prompt}],
+        response = requests.post(
+            url,
+            headers={'Authorization': f'Bearer {ai_config.api_key}'},
+            json={'model': ai_config.model, 'messages': [{'role': 'user', 'content': prompt}]},
+            timeout=30,
         )
-    except OpenAIError as exc:
+        response.raise_for_status()
+    except requests.RequestException as exc:
         LOGGER.debug('Azure AI account suggestion API error: %s', exc)
         return []
 
-    content = (response.choices[0].message.content or '').strip()
+    content = (response.json().get('choices', [{}])[0].get('message', {}).get('content') or '').strip()
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError:
@@ -115,7 +119,9 @@ def suggest_account(
 
     raw_suggestions = parsed.get('suggestions', [])
     raw_reasons = parsed.get('reasons', [])
-    reasons = [str(r) for r in raw_reasons if r] if isinstance(raw_reasons, list) else []
+    reasons: list[str] = []
+    if isinstance(raw_reasons, list):
+        reasons = [str(r) for r in cast('list[object]', raw_reasons) if r]
     if not isinstance(raw_suggestions, list):
         LOGGER.debug('Azure AI "suggestions" field is not a list')
         return []
@@ -125,16 +131,18 @@ def suggest_account(
         acct_id = str(account.get('id', ''))
         attributes = account.get('attributes', {})
         if isinstance(attributes, Mapping):
-            name = str(attributes.get('name') or '').strip()
+            attrs = cast('Mapping[str, object]', attributes)
+            name = str(attrs.get('name') or '').strip()
             account_names[acct_id] = name or f'Account {acct_id}'
 
     valid_ids = {str(a.get('id', '')) for a in accounts}
     results: list[AccountSuggestion] = []
-    for item in raw_suggestions:
+    for item in cast('list[object]', raw_suggestions):
         if not isinstance(item, Mapping):
             continue
-        account_id = str(item.get('account_id', ''))
-        confidence = str(item.get('confidence', 'low'))
+        item_map = cast('Mapping[str, object]', item)
+        account_id = str(item_map.get('account_id', ''))
+        confidence = str(item_map.get('confidence', 'low'))
         if account_id not in valid_ids:
             LOGGER.debug('AI suggested unknown account_id %s — skipping', account_id)
             continue

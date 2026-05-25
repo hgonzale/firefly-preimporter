@@ -11,7 +11,6 @@ authors = [
 dependencies = [
   "requests>=2.32",
   "ofxtools>=0.9",
-  "openai>=1.0",
 ]
 
 [project.urls]
@@ -30,6 +29,7 @@ packages = ["src/firefly_preimporter"]
 include = ["src/firefly_preimporter/py.typed"]
 
 [tool.hatch.build.targets.sdist]
+exclude = [".uv-cache", ".tox"]
 include = [
   "src/firefly_preimporter",
   "pyproject.toml",
@@ -59,7 +59,7 @@ dev = [
   "ruff>=0.6.9",
   "tox>=4.18",
   "tox-uv>=1.11",
-  "ty>=0.0.2",
+  "pyright>=1.1",
 ]
 
 [tool.ruff]
@@ -96,6 +96,7 @@ docstring-quotes = "double"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "SLF001"]
+"stubs/*" = ["ANN401", "N818"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

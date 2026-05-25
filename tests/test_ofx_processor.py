@@ -134,7 +134,7 @@ def test_iter_ofx_parses_utf8_content_declared_as_charset_1252(tmp_path: Path) -
     ofx_file = tmp_path / 'apple.ofx'
     ofx_file.write_bytes(ofx_bytes)
 
-    results = list(ofx_processor._iter_ofx_transactions(ofx_file))
+    results = list(ofx_processor._iter_ofx_transactions(ofx_file))  # pyright: ignore[reportPrivateUsage]
     assert len(results) == 1
     _, txn = results[0]
     assert txn.name == 'CAFÏ TEST'  # U+00CF = Ï

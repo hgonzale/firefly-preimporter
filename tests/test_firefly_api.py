@@ -299,7 +299,7 @@ def test_upload_firefly_payloads_applies_batch_tag(monkeypatch: pytest.MonkeyPat
 
 
 def test_extract_uploaded_groups_parses_transactions() -> None:
-    payload = {
+    payload: dict[str, object] = {
         'data': [
             {
                 'id': '123',
@@ -316,7 +316,7 @@ def test_extract_uploaded_groups_parses_transactions() -> None:
     resp.status_code = 200
     resp._content = json.dumps(payload).encode('utf-8')
 
-    groups = firefly_api._extract_uploaded_groups(resp)
+    groups = firefly_api._extract_uploaded_groups(resp)  # pyright: ignore[reportPrivateUsage]
 
     assert groups == [UploadedGroup(group_id=123, journals={77: ['foo'], 89: []})]
 
@@ -326,7 +326,7 @@ def test_extract_uploaded_groups_ignores_bad_payload() -> None:
         def json(self) -> dict[str, object]:
             raise ValueError('boom')
 
-    assert firefly_api._extract_uploaded_groups(BadResponse()) == []
+    assert firefly_api._extract_uploaded_groups(BadResponse()) == []  # pyright: ignore[reportPrivateUsage]
 
 
 def test_ensure_tag_exists_treats_422_as_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -340,7 +340,7 @@ def test_ensure_tag_exists_treats_422_as_success(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(firefly_api.requests, 'post', lambda *_, **__: DummyResponse())
 
-    firefly_api._ensure_tag_exists(_settings(), 'tag-ok')
+    firefly_api._ensure_tag_exists(_settings(), 'tag-ok')  # pyright: ignore[reportPrivateUsage]
 
 
 def test_apply_batch_tag_calls_append(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -361,17 +361,17 @@ def test_apply_batch_tag_calls_append(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(firefly_api, '_ensure_tag_exists', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(firefly_api, '_append_tag_to_group', fake_append)
 
-    firefly_api._apply_batch_tag(_settings(), tag='ff', groups=groups, emit=lambda *_a, **_k: None)
+    firefly_api._apply_batch_tag(_settings(), tag='ff', groups=groups, emit=lambda *_a, **_k: None)  # pyright: ignore[reportPrivateUsage]
 
     assert called == [(55, {101: ['existing']}, 'ff')]
 
 
 def test_mask_account_number_masks_all_but_last_four() -> None:
-    assert firefly_api._mask_account_number('1234567890') == '******7890'
+    assert firefly_api._mask_account_number('1234567890') == '******7890'  # pyright: ignore[reportPrivateUsage]
 
 
 def test_mask_account_number_preserves_short_values() -> None:
-    assert firefly_api._mask_account_number('123') == '123'
+    assert firefly_api._mask_account_number('123') == '123'  # pyright: ignore[reportPrivateUsage]
 
 
 def test_format_firefly_status_truncates_description() -> None:
@@ -384,19 +384,19 @@ def test_format_firefly_status_truncates_description() -> None:
             ),
         ],
     )
-    label = firefly_api._format_firefly_status(payload)
+    label = firefly_api._format_firefly_status(payload)  # pyright: ignore[reportPrivateUsage]
     assert label.startswith('2025-01-01 "This is a very')
     assert label.endswith('…" (account 1)')
 
 
 def test_format_firefly_status_handles_missing_transactions() -> None:
     payload = replace(_make_payload(), transactions=[])
-    label = firefly_api._format_firefly_status(payload)
+    label = firefly_api._format_firefly_status(payload)  # pyright: ignore[reportPrivateUsage]
     assert label == '? ""'
 
 
 def test_merge_tags_removes_duplicates_and_blanks() -> None:
-    merged = firefly_api._merge_tags(['alpha', '', 'bravo'], 'alpha')
+    merged = firefly_api._merge_tags(['alpha', '', 'bravo'], 'alpha')  # pyright: ignore[reportPrivateUsage]
     assert merged == ['alpha', 'bravo']
 
 
@@ -407,10 +407,10 @@ def test_emit_response_snippet_handles_long_and_empty() -> None:
         messages.append((message, error, verbose_only))
 
     long_text = 'x' * 600
-    firefly_api._emit_response_snippet(emit, long_text)
+    firefly_api._emit_response_snippet(emit, long_text)  # pyright: ignore[reportPrivateUsage]
     assert '…' in messages[0][0]
 
-    firefly_api._emit_response_snippet(emit, '', error=True, verbose_only=True)
+    firefly_api._emit_response_snippet(emit, '', error=True, verbose_only=True)  # pyright: ignore[reportPrivateUsage]
     assert '<empty response body>' in messages[1][0]
     assert messages[1][1] is True
     assert messages[1][2] is True
@@ -482,7 +482,7 @@ def test_extract_uploaded_groups_handles_non_list_data() -> None:
     response.status_code = 200
     response._content = b'{"data": {"id": "1"}}'
 
-    assert firefly_api._extract_uploaded_groups(response) == []
+    assert firefly_api._extract_uploaded_groups(response) == []  # pyright: ignore[reportPrivateUsage]
 
 
 def test_extract_uploaded_groups_handles_single_dict_payload() -> None:
@@ -500,7 +500,7 @@ def test_extract_uploaded_groups_handles_single_dict_payload() -> None:
     resp._content = json.dumps(payload).encode('utf-8')
     resp.status_code = 200
 
-    groups = firefly_api._extract_uploaded_groups(resp)
+    groups = firefly_api._extract_uploaded_groups(resp)  # pyright: ignore[reportPrivateUsage]
 
     assert groups == [UploadedGroup(group_id=555, journals={919: ['foo', 'bar']})]
 
@@ -515,11 +515,11 @@ def test_apply_batch_tag_logs_and_raises_on_http_error(monkeypatch: pytest.Monke
 
     response = SimpleNamespace(status_code=500, text='boom')
     http_error = HTTPError('500')
-    http_error.response = response  # type: ignore[assignment]
+    http_error.response = response  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     monkeypatch.setattr(firefly_api, '_ensure_tag_exists', lambda *_a, **_k: (_ for _ in ()).throw(http_error))
 
     with pytest.raises(HTTPError):
-        firefly_api._apply_batch_tag(
+        firefly_api._apply_batch_tag(  # pyright: ignore[reportPrivateUsage]
             _settings(),
             tag='tag',
             groups=[UploadedGroup(group_id=1, journals={1: ['existing']})],
@@ -544,7 +544,7 @@ def test_apply_batch_tag_logs_and_raises_on_other_exception(monkeypatch: pytest.
     monkeypatch.setattr(firefly_api, '_ensure_tag_exists', explode)
 
     with pytest.raises(ValueError, match='kapow'):
-        firefly_api._apply_batch_tag(
+        firefly_api._apply_batch_tag(  # pyright: ignore[reportPrivateUsage]
             _settings(),
             tag='tag',
             groups=[UploadedGroup(group_id=1, journals={})],
@@ -685,7 +685,7 @@ def test_fetch_existing_external_ids_collects_ids() -> None:
     response.raise_for_status.return_value = None
     session.get.return_value = response
 
-    result = firefly_api._fetch_existing_external_ids(_settings(), [payload], session=session)
+    result = firefly_api._fetch_existing_external_ids(_settings(), [payload], session=session)  # pyright: ignore[reportPrivateUsage]
 
     assert result == {'abc', 'def'}
     session.get.assert_called_once()

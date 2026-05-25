@@ -6,9 +6,8 @@ import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from openai import OpenAIError
-
-from firefly_preimporter.account_matcher import _build_prompt, suggest_account
+import requests
+from firefly_preimporter.account_matcher import _build_prompt, suggest_account  # pyright: ignore[reportPrivateUsage]
 from firefly_preimporter.config import AzureAiSettings
 from firefly_preimporter.models import Transaction
 
@@ -44,12 +43,11 @@ def _recent() -> dict[str, list[tuple[str, str]]]:
     }
 
 
-def _mock_client(content: str) -> MagicMock:
-    completion = MagicMock()
-    completion.choices = [MagicMock(message=MagicMock(content=content))]
-    mock = MagicMock()
-    mock.return_value.chat.completions.create.return_value = completion
-    return mock
+def _mock_post(content: str) -> MagicMock:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {'choices': [{'message': {'content': content}}]}
+    mock_resp.raise_for_status.return_value = None
+    return MagicMock(return_value=mock_resp)
 
 
 # --- _build_prompt ---
@@ -119,7 +117,7 @@ def test_suggest_account_happy_path_single() -> None:
         'suggestions': [{'account_id': 3, 'confidence': 'high'}],
         'reasons': ['Filename contains 4521 and transaction history matches.'],
     })
-    with patch('firefly_preimporter.account_matcher.OpenAI', _mock_client(response)):
+    with patch('firefly_preimporter.account_matcher.requests.post', _mock_post(response)):
         result = suggest_account('statement_4521.csv', _txns(), _accounts(), _recent(), ai_config=_ai_config())
 
     assert len(result) == 1
@@ -140,7 +138,7 @@ def test_suggest_account_returns_up_to_three() -> None:
         ],
         'reasoning': 'Multiple candidates.',
     })
-    with patch('firefly_preimporter.account_matcher.OpenAI', _mock_client(response)):
+    with patch('firefly_preimporter.account_matcher.requests.post', _mock_post(response)):
         result = suggest_account('file.csv', [], accounts, {}, ai_config=_ai_config())
 
     assert len(result) == 3
@@ -151,7 +149,7 @@ def test_suggest_account_filters_unknown_account_ids() -> None:
         'suggestions': [{'account_id': 999, 'confidence': 'high'}],
         'reasoning': 'Unknown.',
     })
-    with patch('firefly_preimporter.account_matcher.OpenAI', _mock_client(response)):
+    with patch('firefly_preimporter.account_matcher.requests.post', _mock_post(response)):
         result = suggest_account('file.csv', _txns(), _accounts(), _recent(), ai_config=_ai_config())
 
     assert result == []
@@ -162,7 +160,7 @@ def test_suggest_account_normalises_invalid_confidence() -> None:
         'suggestions': [{'account_id': 3, 'confidence': 'very-sure'}],
         'reasoning': 'Sure.',
     })
-    with patch('firefly_preimporter.account_matcher.OpenAI', _mock_client(response)):
+    with patch('firefly_preimporter.account_matcher.requests.post', _mock_post(response)):
         result = suggest_account('file.csv', _txns(), _accounts(), _recent(), ai_config=_ai_config())
 
     assert len(result) == 1
@@ -170,16 +168,15 @@ def test_suggest_account_normalises_invalid_confidence() -> None:
 
 
 def test_suggest_account_returns_empty_on_invalid_json() -> None:
-    with patch('firefly_preimporter.account_matcher.OpenAI', _mock_client('not json at all')):
+    with patch('firefly_preimporter.account_matcher.requests.post', _mock_post('not json at all')):
         result = suggest_account('file.csv', _txns(), _accounts(), _recent(), ai_config=_ai_config())
 
     assert result == []
 
 
 def test_suggest_account_returns_empty_on_api_error() -> None:
-    mock = MagicMock()
-    mock.return_value.chat.completions.create.side_effect = OpenAIError()
-    with patch('firefly_preimporter.account_matcher.OpenAI', mock):
+    mock_post = MagicMock(side_effect=requests.RequestException())
+    with patch('firefly_preimporter.account_matcher.requests.post', mock_post):
         result = suggest_account('file.csv', _txns(), _accounts(), _recent(), ai_config=_ai_config())
 
     assert result == []
@@ -187,7 +184,7 @@ def test_suggest_account_returns_empty_on_api_error() -> None:
 
 def test_suggest_account_returns_empty_when_suggestions_not_list() -> None:
     response = json.dumps({'suggestions': 'not-a-list', 'reasoning': 'Oops.'})
-    with patch('firefly_preimporter.account_matcher.OpenAI', _mock_client(response)):
+    with patch('firefly_preimporter.account_matcher.requests.post', _mock_post(response)):
         result = suggest_account('file.csv', _txns(), _accounts(), _recent(), ai_config=_ai_config())
 
     assert result == []

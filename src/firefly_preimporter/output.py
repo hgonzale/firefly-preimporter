@@ -7,6 +7,7 @@ import io
 from collections.abc import Iterable
 from dataclasses import asdict
 from pathlib import Path
+from typing import cast
 
 from firefly_preimporter.config import FireflyPreimporterSettings
 from firefly_preimporter.models import ProcessingResult, Transaction
@@ -15,7 +16,7 @@ from firefly_preimporter.models import ProcessingResult, Transaction
 def build_csv_payload(transactions: Iterable[Transaction]) -> str:
     """Serialize transactions into a Firefly-compatible CSV string."""
 
-    if not isinstance(transactions, Iterable):
+    if not isinstance(transactions, Iterable):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise TypeError('transactions must be iterable')
 
     buffer = io.StringIO()
@@ -34,7 +35,7 @@ def build_json_config(
 ) -> dict[str, object]:
     """Construct the FiDI JSON config payload for the given account."""
 
-    if not isinstance(settings, FireflyPreimporterSettings):
+    if not isinstance(settings, FireflyPreimporterSettings):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise TypeError('invalid Firefly settings')
 
     if settings.fidi is None:  # pragma: no cover
@@ -56,7 +57,7 @@ def build_json_config(
     # must emit an empty object ({}), not an empty array, to satisfy FiDI's own
     # downloader/validator logic.
     raw_mapping = config.get('mapping')
-    mapping: dict[str, object] = raw_mapping if isinstance(raw_mapping, dict) else {}
+    mapping = cast('dict[str, object]', raw_mapping if isinstance(raw_mapping, dict) else {})
     config['mapping'] = mapping
     config['do_mapping'] = [False] * len(roles)
     if allow_duplicates:
@@ -69,7 +70,7 @@ def build_json_config(
 def write_output(result: ProcessingResult, *, output_path: Path | str | None) -> str:
     """Write the CSV payload to ``output_path`` if provided and return the CSV string."""
 
-    if not isinstance(result, ProcessingResult):
+    if not isinstance(result, ProcessingResult):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise TypeError('invalid processing result')
 
     csv_payload = build_csv_payload(result.transactions)

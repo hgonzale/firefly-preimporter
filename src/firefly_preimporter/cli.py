@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import cast
 
 from firefly_preimporter import __version__ as pkg_version
-from firefly_preimporter.account_matcher import suggest_account
+from firefly_preimporter.account_matcher import AccountSuggestion, suggest_account
 from firefly_preimporter.config import DEFAULT_CONFIG_PATH, FireflyPreimporterSettings, load_settings
 from firefly_preimporter.detect import gather_jobs
 from firefly_preimporter.firefly_api import (
@@ -122,12 +122,6 @@ def _match_account_number(account_number: str, accounts: list[dict[str, object]]
 
 def _generate_batch_tag() -> str:
     return datetime.now().strftime('ff-preimporter %Y-%m-%d @ %H:%M')
-
-
-def _format_firefly_status(split: Mapping[str, object]) -> str:
-    date = str(split.get('date', '?'))
-    description = str(split.get('description', '') or '')[:20]
-    return f'{date} "{description}"'.strip()
 
 
 def _process_job(job: ProcessingJob) -> ProcessingResult:
@@ -269,7 +263,7 @@ def _prompt_account_id(
     color = _color_enabled()
 
     # --- AI suggestion ---
-    suggestions: list = []
+    suggestions: list[AccountSuggestion] = []
     if settings is not None and settings.common.azure_ai is not None:
         azure_cfg = settings.common.azure_ai
         try:
@@ -347,7 +341,7 @@ def _prompt_account_id(
                 break
 
     file_label = _style_text(result.job.source_path.name, 'cyan', 'bold', enabled=color)
-    hint_parts = []
+    hint_parts: list[str] = []
     if default_idx is not None:
         hint_parts.append(f'Enter for [{default_idx}]')
     hint_parts += ['number/id', '"p" to preview', '"s" to skip']

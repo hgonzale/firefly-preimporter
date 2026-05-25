@@ -109,11 +109,13 @@ def fetch_asset_accounts(
         payload = cast('dict[str, Any]', response.json())
         raw_data = payload.get('data', [])
         if isinstance(raw_data, list):
-            entries = [entry for entry in raw_data if isinstance(entry, dict)]
-            accounts.extend(cast('list[dict[str, object]]', entries))
+            raw_list = cast('list[object]', raw_data)
+            entries: list[dict[str, object]] = [cast('dict[str, object]', e) for e in raw_list if isinstance(e, dict)]
+            accounts.extend(entries)
         links = payload.get('links', {})
         if isinstance(links, Mapping):
-            next_url = links.get('next')
+            links_map = cast('Mapping[str, object]', links)
+            next_url = links_map.get('next')
             url = str(next_url) if isinstance(next_url, str) and next_url else None
         else:
             url = None
@@ -130,8 +132,9 @@ def format_account_label(account: Mapping[str, Any]) -> str:
 
     attributes = account.get('attributes', {})
     if isinstance(attributes, Mapping):
-        name = str(attributes.get('name') or '').strip()
-        acct_number = str(attributes.get('account_number') or '').strip()
+        attrs = cast('Mapping[str, object]', attributes)
+        name = str(attrs.get('name') or '').strip()
+        acct_number = str(attrs.get('account_number') or '').strip()
     else:  # pragma: no cover - defensive fallback
         name = ''
         acct_number = ''
@@ -152,7 +155,8 @@ def _extract_uploaded_groups(response: requests.Response) -> list[UploadedGroup]
     data = payload.get('data')
     entries: list[Mapping[str, Any]] = []
     if isinstance(data, list):
-        entries = [cast('Mapping[str, Any]', entry) for entry in data if isinstance(entry, Mapping)]
+        data_list = cast('list[object]', data)
+        entries = [cast('Mapping[str, Any]', entry) for entry in data_list if isinstance(entry, Mapping)]
     elif isinstance(data, Mapping):
         entries = [cast('Mapping[str, Any]', data)]
     else:
@@ -173,18 +177,21 @@ def _extract_uploaded_groups(response: requests.Response) -> list[UploadedGroup]
         if not isinstance(transactions, list):
             continue
         journals: dict[int, list[str]] = {}
-        for txn in transactions:
+        txns_list = cast('list[object]', transactions)
+        for txn in txns_list:
             if not isinstance(txn, Mapping):
                 continue
-            journal_id = txn.get('transaction_journal_id') or txn.get('id')
+            txn_map = cast('Mapping[str, object]', txn)
+            journal_id = txn_map.get('transaction_journal_id') or txn_map.get('id')
             try:
                 journal_id_int = int(str(journal_id))
             except (TypeError, ValueError):
                 continue
-            tags_raw = txn.get('tags', [])
+            tags_raw = txn_map.get('tags', [])
             tags: list[str] = []
             if isinstance(tags_raw, list):
-                tags = [str(tag) for tag in tags_raw if isinstance(tag, str) and tag]
+                tags_list = cast('list[object]', tags_raw)
+                tags = [str(t) for t in tags_list if isinstance(t, str) and t]
             journals[journal_id_int] = tags
         if journals:
             groups.append(UploadedGroup(group_id=group_id_int, journals=journals))
@@ -366,29 +373,33 @@ def fetch_recent_account_transactions(
         body = cast('dict[str, Any]', response.json())
         raw_data = body.get('data', [])
         if isinstance(raw_data, list):
-            for entry in raw_data:
+            for entry in cast('list[object]', raw_data):
                 if len(results) >= max_results:
                     break
                 if not isinstance(entry, Mapping):
                     continue
-                attrs = entry.get('attributes', {})
+                entry_map = cast('Mapping[str, object]', entry)
+                attrs = entry_map.get('attributes', {})
                 if not isinstance(attrs, Mapping):
                     continue
-                txns = attrs.get('transactions', [])
+                attrs_map = cast('Mapping[str, object]', attrs)
+                txns = attrs_map.get('transactions', [])
                 if not isinstance(txns, list):
                     continue
-                for txn in txns:
+                for txn in cast('list[object]', txns):
                     if not isinstance(txn, Mapping):
                         continue
-                    description = str(txn.get('description') or '').strip()
-                    amount = str(txn.get('amount') or '').strip()
+                    txn_map = cast('Mapping[str, object]', txn)
+                    description = str(txn_map.get('description') or '').strip()
+                    amount = str(txn_map.get('amount') or '').strip()
                     if description:
                         results.append((description, amount))
                     if len(results) >= max_results:
                         break
         links = body.get('links', {})
         if isinstance(links, Mapping):
-            next_url = links.get('next')
+            links_map = cast('Mapping[str, object]', links)
+            next_url = links_map.get('next')
             url = str(next_url) if isinstance(next_url, str) and next_url else None
         else:
             url = None
@@ -455,23 +466,27 @@ def _fetch_existing_external_ids(
             body = cast('dict[str, Any]', response.json())
             raw_data = body.get('data', [])
             if isinstance(raw_data, list):
-                for entry in raw_data:
+                for entry in cast('list[object]', raw_data):
                     if not isinstance(entry, Mapping):
                         continue
-                    attrs = entry.get('attributes', {})
+                    entry_map = cast('Mapping[str, object]', entry)
+                    attrs = entry_map.get('attributes', {})
                     if not isinstance(attrs, Mapping):
                         continue
-                    txns = attrs.get('transactions', [])
+                    attrs_map = cast('Mapping[str, object]', attrs)
+                    txns = attrs_map.get('transactions', [])
                     if not isinstance(txns, list):
                         continue
-                    for txn in txns:
+                    for txn in cast('list[object]', txns):
                         if isinstance(txn, Mapping):
-                            ext_id = txn.get('external_id')
+                            txn_map = cast('Mapping[str, object]', txn)
+                            ext_id = txn_map.get('external_id')
                             if isinstance(ext_id, str) and ext_id:
                                 existing.add(ext_id)
             links = body.get('links', {})
             if isinstance(links, Mapping):
-                next_url = links.get('next')
+                links_map = cast('Mapping[str, object]', links)
+                next_url = links_map.get('next')
                 url = str(next_url) if isinstance(next_url, str) and next_url else None
             else:
                 url = None

@@ -180,7 +180,7 @@ def test_main_writes_default_file(
 def test_process_job_unknown_format(tmp_path: Path) -> None:
     job = ProcessingJob(source_path=tmp_path / 'weird.bin', source_format=SourceFormat.UNKNOWN)
     with pytest.raises(ValueError, match='No processor'):
-        cli._process_job(job)
+        cli._process_job(job)  # pyright: ignore[reportPrivateUsage]
 
 
 def test_main_requires_upload_for_dry_run(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
@@ -256,7 +256,7 @@ def test_prompt_account_id_accepts_numeric(monkeypatch: pytest.MonkeyPatch, dumm
     responses = iter(['', '1'])
     monkeypatch.setattr('builtins.input', lambda _prompt: next(responses))
     result = ProcessingResult(job=dummy_job, transactions=[])
-    selected = cli._prompt_account_id(result, accounts)
+    selected = cli._prompt_account_id(result, accounts)  # pyright: ignore[reportPrivateUsage]
     assert selected == '42'
 
 
@@ -264,7 +264,7 @@ def test_prompt_account_id_accepts_id(monkeypatch: pytest.MonkeyPatch, dummy_job
     accounts: list[dict[str, object]] = [{'id': '99', 'attributes': {'name': 'Savings'}}]
     monkeypatch.setattr('builtins.input', lambda _prompt: '99')
     result = ProcessingResult(job=dummy_job, transactions=[])
-    assert cli._prompt_account_id(result, accounts) == '99'
+    assert cli._prompt_account_id(result, accounts) == '99'  # pyright: ignore[reportPrivateUsage]
 
 
 def test_prompt_account_id_adds_separator_after_selection(
@@ -275,7 +275,7 @@ def test_prompt_account_id_adds_separator_after_selection(
     accounts: list[dict[str, object]] = [{'id': '1', 'attributes': {'name': 'Checking'}}]
     monkeypatch.setattr('builtins.input', lambda _prompt: '1')
     result = ProcessingResult(job=dummy_job, transactions=[])
-    cli._prompt_account_id(result, accounts)
+    cli._prompt_account_id(result, accounts)  # pyright: ignore[reportPrivateUsage]
     output_lines = capsys.readouterr().out.splitlines()
     selected_idx = next(idx for idx, line in enumerate(output_lines) if line.startswith('Selected:'))
     assert output_lines[selected_idx + 1] == ''
@@ -292,7 +292,7 @@ def test_prompt_account_id_preview_command(
         Transaction(transaction_id='2', date='2024-01-02', description='Tea', amount='-2.00'),
     ]
     result = ProcessingResult(job=dummy_job, transactions=transactions)
-    selected = cli._prompt_account_id(result, accounts)
+    selected = cli._prompt_account_id(result, accounts)  # pyright: ignore[reportPrivateUsage]
     assert selected == '1'
     output = capsys.readouterr().out
     assert 'Previewing first transactions' in output
@@ -324,7 +324,7 @@ def test_preview_transactions_fit_terminal_width(
         ),
     ]
     result = ProcessingResult(job=dummy_job, transactions=transactions)
-    cli._preview_transactions(result, limit=1)
+    cli._preview_transactions(result, limit=1)  # pyright: ignore[reportPrivateUsage]
     output_lines = [line for line in capsys.readouterr().out.splitlines() if ' | ' in line]
     assert output_lines
     assert all(len(line) <= terminal_width for line in output_lines)
@@ -336,20 +336,20 @@ def test_prompt_account_id_skip_command(monkeypatch: pytest.MonkeyPatch, dummy_j
     monkeypatch.setattr('builtins.input', lambda _prompt: 's')
     result = ProcessingResult(job=dummy_job, transactions=[])
     with pytest.raises(cli.SkipJobError):
-        cli._prompt_account_id(result, accounts)
+        cli._prompt_account_id(result, accounts)  # pyright: ignore[reportPrivateUsage]
 
 
 def test_resolve_account_id_prefers_result(dummy_job: ProcessingJob) -> None:
     args = Namespace(upload=None)
     result = ProcessingResult(job=dummy_job, account_id='777')
-    resolved = cli._resolve_account_id(result, args, None)
+    resolved = cli._resolve_account_id(result, args, None)  # pyright: ignore[reportPrivateUsage]
     assert resolved == '777'
 
 
 def test_resolve_account_id_uses_flag(dummy_job: ProcessingJob) -> None:
     args = Namespace(upload=None, account_id='444')
     result = ProcessingResult(job=dummy_job, account_id=None)
-    resolved = cli._resolve_account_id(result, args, None)
+    resolved = cli._resolve_account_id(result, args, None)  # pyright: ignore[reportPrivateUsage]
     assert resolved == '444'
 
 
@@ -362,14 +362,14 @@ def test_resolve_account_id_flag_matches_account_number(
     accounts: list[dict[str, object]] = [{'id': '77', 'attributes': {'name': 'Card', 'account_number': 'OFX-100'}}]
     monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
     result = ProcessingResult(job=dummy_job, account_id=None)
-    resolved = cli._resolve_account_id(result, args, settings)
+    resolved = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
     assert resolved == '77'
 
 
 def test_resolve_account_id_flag_returns_string_without_settings(dummy_job: ProcessingJob) -> None:
     args = Namespace(upload=None, account_id='OFX-200')
     result = ProcessingResult(job=dummy_job, account_id=None)
-    resolved = cli._resolve_account_id(result, args, None)
+    resolved = cli._resolve_account_id(result, args, None)  # pyright: ignore[reportPrivateUsage]
     assert resolved == 'OFX-200'
 
 
@@ -385,7 +385,7 @@ def test_resolve_account_id_skips_lookup_when_not_uploading(
 
     monkeypatch.setattr(cli, 'fetch_asset_accounts', fail_fetch)
     result = ProcessingResult(job=dummy_job, account_id='OFX-LOOKUP')
-    resolved = cli._resolve_account_id(
+    resolved = cli._resolve_account_id(  # pyright: ignore[reportPrivateUsage]
         result,
         args,
         settings,
@@ -400,7 +400,7 @@ def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPat
     accounts: list[dict[str, object]] = [{'id': '55', 'attributes': {'name': 'Match', 'account_number': 'OFX-999'}}]
     monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
     result = ProcessingResult(job=dummy_job, account_id='OFX-999')
-    resolved = cli._resolve_account_id(result, args, settings)
+    resolved = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
     assert resolved == '55'
 
 
@@ -418,8 +418,8 @@ def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, du
     monkeypatch.setattr(cli, '_prompt_account_id', fake_prompt)
     result = ProcessingResult(job=dummy_job, account_id=None)
 
-    first = cli._resolve_account_id(result, args, settings)
-    second = cli._resolve_account_id(result, args, settings)
+    first = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
+    second = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
 
     assert prompt_calls['count'] == 2
     assert first == 'id-1'
@@ -808,7 +808,7 @@ def test_resolve_account_id_matches_by_account_number(tmp_path: Path) -> None:
     args.cached_asset_accounts = [{'id': '777', 'attributes': {'account_number': 'ACCT-3550'}}]
     settings = _settings()
 
-    resolved = cli._resolve_account_id(result, args, settings, require_resolution=True)
+    resolved = cli._resolve_account_id(result, args, settings, require_resolution=True)  # pyright: ignore[reportPrivateUsage]
 
     assert resolved == '777'
 
@@ -930,7 +930,7 @@ def test_prompt_account_id_single_suggestion_shown_and_default(
     responses = iter([''])
     monkeypatch.setattr('builtins.input', lambda _prompt: next(responses))
 
-    selected = cli._prompt_account_id(result, accounts, settings=settings)
+    selected = cli._prompt_account_id(result, accounts, settings=settings)  # pyright: ignore[reportPrivateUsage]
 
     assert selected == '3'
     out = capsys.readouterr().out
@@ -954,7 +954,7 @@ def test_prompt_account_id_single_suggestion_highlights_with_check_mark(
     monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
     monkeypatch.setattr('builtins.input', lambda _prompt: '1')
 
-    cli._prompt_account_id(result, accounts, settings=settings)
+    cli._prompt_account_id(result, accounts, settings=settings)  # pyright: ignore[reportPrivateUsage]
 
     out = capsys.readouterr().out
     assert '✓' in out
@@ -983,7 +983,7 @@ def test_prompt_account_id_multiple_suggestions_shows_question_marks(
     monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
     monkeypatch.setattr('builtins.input', lambda _prompt: '1')
 
-    cli._prompt_account_id(result, accounts, settings=settings)
+    cli._prompt_account_id(result, accounts, settings=settings)  # pyright: ignore[reportPrivateUsage]
 
     out = capsys.readouterr().out
     assert '?' in out
@@ -1015,7 +1015,7 @@ def test_prompt_account_id_multiple_suggestions_no_default_on_empty_input(
     responses = iter(['', '1'])
     monkeypatch.setattr('builtins.input', lambda _prompt: next(responses))
 
-    selected = cli._prompt_account_id(result, accounts, settings=settings)
+    selected = cli._prompt_account_id(result, accounts, settings=settings)  # pyright: ignore[reportPrivateUsage]
     assert selected == '3'
 
 
@@ -1028,7 +1028,7 @@ def test_prompt_account_id_no_ai_config_skips_suggestion(
     result = ProcessingResult(job=dummy_job, transactions=[])
     monkeypatch.setattr('builtins.input', lambda _prompt: '1')
 
-    cli._prompt_account_id(result, accounts, settings=None)
+    cli._prompt_account_id(result, accounts, settings=None)  # pyright: ignore[reportPrivateUsage]
 
     out = capsys.readouterr().out
     assert 'AI' not in out
