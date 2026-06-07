@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.1 — 2026-06-06
+
+### Security
+- Upgraded `requests` 2.32.5 → 2.34.2, `urllib3` 2.6.0 → 2.7.0, `idna` 3.11 → 3.18,
+  `pytest` 9.0.2 → 9.0.3, `filelock` 3.20.0 → 3.29.1, `pygments` 2.19.2 → 2.20.0,
+  `uv` 0.9.16 → 0.11.19, `virtualenv` 20.35.4 → 21.4.2 to address Dependabot alerts.
+
 ## v0.6.0 — 2026-06-06
 
 ### Added
