@@ -11,6 +11,16 @@ if TYPE_CHECKING:  # pragma: no cover
 LOGGER = logging.getLogger(__name__)
 
 
+def mask_account_number(account_number: str) -> str:
+    """Return a masked representation that only reveals the last four characters."""
+
+    clean = account_number.strip()
+    if len(clean) <= 4:
+        return clean
+    masked_prefix = '*' * (len(clean) - 4)
+    return f'{masked_prefix}{clean[-4:]}'
+
+
 def get_verify_option(settings: FireflyPreimporterSettings) -> bool | str:
     """Return the appropriate 'verify' parameter for requests library.
 

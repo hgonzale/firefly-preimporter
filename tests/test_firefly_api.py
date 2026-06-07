@@ -19,7 +19,7 @@ from firefly_preimporter.firefly_api import (
     write_firefly_payloads,
 )
 from firefly_preimporter.models import FireflyPayload, FireflyTransactionSplit, UploadedGroup
-from firefly_preimporter.utils import get_verify_option
+from firefly_preimporter.utils import get_verify_option, mask_account_number
 from requests import Response
 from requests.exceptions import HTTPError, RequestException
 
@@ -367,11 +367,11 @@ def test_apply_batch_tag_calls_append(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_mask_account_number_masks_all_but_last_four() -> None:
-    assert firefly_api._mask_account_number('1234567890') == '******7890'  # pyright: ignore[reportPrivateUsage]
+    assert mask_account_number('1234567890') == '******7890'
 
 
 def test_mask_account_number_preserves_short_values() -> None:
-    assert firefly_api._mask_account_number('123') == '123'  # pyright: ignore[reportPrivateUsage]
+    assert mask_account_number('123') == '123'
 
 
 def test_format_firefly_status_truncates_description() -> None:

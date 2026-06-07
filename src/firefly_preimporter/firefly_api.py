@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import requests
 from firefly_preimporter.models import FireflyPayload, UploadedGroup
-from firefly_preimporter.utils import get_verify_option
+from firefly_preimporter.utils import get_verify_option, mask_account_number
 from requests.exceptions import HTTPError, RequestException
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
@@ -25,15 +25,6 @@ DEFAULT_PAGE_SIZE = 50  # Firefly III API default pagination limit
 class FireflyEmitter(Protocol):
     def __call__(self, message: str, *, error: bool = False, verbose_only: bool = False) -> None: ...
 
-
-def _mask_account_number(account_number: str) -> str:
-    """Return a masked representation that only reveals the last four characters."""
-
-    clean = account_number.strip()
-    if len(clean) <= 4:
-        return clean
-    masked_prefix = '*' * (len(clean) - 4)
-    return f'{masked_prefix}{clean[-4:]}'
 
 
 def _format_firefly_status(payload: FireflyPayload) -> str:
@@ -140,7 +131,7 @@ def format_account_label(account: Mapping[str, Any]) -> str:
         acct_number = ''
     label = name or f'Account {account.get("id", "?")}'
     if acct_number:
-        masked = _mask_account_number(acct_number)
+        masked = mask_account_number(acct_number)
         label = f'{label} (#{masked})'
     return label
 

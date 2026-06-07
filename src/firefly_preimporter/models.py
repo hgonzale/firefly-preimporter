@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from firefly_preimporter.utils import mask_account_number
+
 if TYPE_CHECKING:  # pragma: no cover - type-checking imports only
     from pathlib import Path
 
@@ -54,7 +56,7 @@ class ProcessingResult:
         """Return a human readable summary string for logging/UX."""
 
         count = len(self.transactions)
-        account_text = f'account {self.account_id}' if self.account_id else 'no account info'
+        account_text = f'account {mask_account_number(self.account_id)}' if self.account_id else 'no account info'
         return f'{self.job.source_path.name}: {count} transactions, {account_text}'
 
 
