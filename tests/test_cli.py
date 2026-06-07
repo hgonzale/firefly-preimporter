@@ -576,6 +576,7 @@ def test_firefly_upload_respects_dry_run(
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
         dry_run: bool = False,
+        **_kwargs: object,
     ) -> int:
         upload_kwargs['dry_run'] = dry_run
         _ = (payloads, settings, emit, batch_tag)
@@ -675,6 +676,7 @@ def test_firefly_upload_posts_payload(
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
         dry_run: bool = False,
+        **_kwargs: object,
     ) -> int:
         captured_payloads.extend(payloads)
         _ = (settings, batch_tag, dry_run)
@@ -729,6 +731,7 @@ def test_firefly_upload_logs_response_on_http_error(
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
         dry_run: bool = False,
+        **_kwargs: object,
     ) -> int:
         _ = (payloads, settings, batch_tag, dry_run)
         emit('Firefly upload 2024-01-01 "Coffee" - failed', error=True)
@@ -784,6 +787,7 @@ def test_firefly_upload_from_config_default(
         emit: firefly_api.FireflyEmitter,
         batch_tag: str | None = None,
         dry_run: bool = False,
+        **_kwargs: object,
     ) -> int:
         nonlocal captured_payload
         captured_payload = payloads[0]

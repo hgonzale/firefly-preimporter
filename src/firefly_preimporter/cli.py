@@ -520,6 +520,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help='Allow duplicate detection to be bypassed (FiDI + Firefly).',
     )
+    parser.add_argument(
+        '--near-duplicate-action',
+        choices=['skip', 'prompt', 'upload'],
+        default='prompt',
+        help='Action for near-duplicate transactions: prompt (default), skip, or upload.',
+    )
     parser.add_argument('--stdout', action='store_true', help='Print normalized CSV to stdout')
     parser.add_argument('-V', '--version', action='version', version=f'%(prog)s {pkg_version}')
     verbosity = parser.add_mutually_exclusive_group()
@@ -667,12 +673,19 @@ def main(argv: list[str] | None = None) -> int:
         if payload_output_path:
             write_firefly_payloads(payloads, payload_output_path, emit=firefly_emit)
         if firefly_upload:
+            near_duplicate_action: str = args.near_duplicate_action
+
+            def _near_dup_prompt(message: str) -> str:
+                return input(f'\n{message}: ')
+
             upload_exit = upload_firefly_payloads(
                 payloads,
                 settings,
                 emit=firefly_emit,
                 batch_tag=payload_builder.tag,
                 dry_run=args.dry_run,
+                near_duplicate_action=near_duplicate_action,
+                prompt_fn=_near_dup_prompt if near_duplicate_action == 'prompt' else None,
             )
             if upload_exit != 0:
                 return upload_exit

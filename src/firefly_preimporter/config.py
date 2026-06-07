@@ -53,6 +53,7 @@ class FireflyApiSettings:
 
     api_base: str
     allow_duplicates: bool = False
+    near_duplicate_threshold: float = 0.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +113,7 @@ def _prepare_settings(raw: Mapping[str, Any]) -> FireflyPreimporterSettings:
         firefly_api = FireflyApiSettings(
             api_base=str(raw_fa['api_base']),
             allow_duplicates=bool(raw_fa.get('allow_duplicates', False)),
+            near_duplicate_threshold=float(raw_fa.get('near_duplicate_threshold', 0.5)),
         )
 
     return FireflyPreimporterSettings(

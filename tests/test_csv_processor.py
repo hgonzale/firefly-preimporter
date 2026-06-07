@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 
 from firefly_preimporter.models import ProcessingJob, SourceFormat
+from firefly_preimporter.dedup import compute_external_id
 from firefly_preimporter.processors.csv_processor import (
-    generate_transaction_id,
     normalize_amount,
     normalize_date,
     process_csv,
@@ -139,7 +139,7 @@ def test_identical_rows_get_distinct_ids(tmp_path: Path) -> None:
     assert len(result.transactions) == 2
     id1, id2 = result.transactions[0].transaction_id, result.transactions[1].transaction_id
     assert id1 != id2
-    base = generate_transaction_id('2026-01-15', 'Coffee', '-5.00')
+    base = compute_external_id('2026-01-15', '-5.00', 'Coffee')
     assert id1 == base
     assert id2 == f'{base}-2'
 
@@ -151,7 +151,7 @@ def test_three_identical_rows_get_distinct_ids(tmp_path: Path) -> None:
     job = ProcessingJob(source_path=f, source_format=SourceFormat.CSV)
     result = process_csv(job)
     assert len(result.transactions) == 3
-    base = generate_transaction_id('2026-01-15', 'Coffee', '-5.00')
+    base = compute_external_id('2026-01-15', '-5.00', 'Coffee')
     assert result.transactions[0].transaction_id == base
     assert result.transactions[1].transaction_id == f'{base}-2'
     assert result.transactions[2].transaction_id == f'{base}-3'
@@ -163,8 +163,8 @@ def test_unique_rows_ids_are_unchanged(tmp_path: Path) -> None:
     job = ProcessingJob(source_path=f, source_format=SourceFormat.CSV)
     result = process_csv(job)
     assert len(result.transactions) == 2
-    assert result.transactions[0].transaction_id == generate_transaction_id('2026-01-15', 'Coffee', '-5.00')
-    assert result.transactions[1].transaction_id == generate_transaction_id('2026-01-16', 'Groceries', '-40.00')
+    assert result.transactions[0].transaction_id == compute_external_id('2026-01-15', '-5.00', 'Coffee')
+    assert result.transactions[1].transaction_id == compute_external_id('2026-01-16', '-40.00', 'Groceries')
 
 
 def test_id_generation_is_stable_across_runs(tmp_path: Path) -> None:

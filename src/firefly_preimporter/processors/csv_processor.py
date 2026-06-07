@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
+from firefly_preimporter.dedup import BatchFingerprintBuilder
 from firefly_preimporter.models import ProcessingJob, ProcessingResult, Transaction
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from collections.abc import Iterable, Iterator
-
-# Transaction ID generation
-TRANSACTION_ID_LENGTH = 15  # Truncated SHA256 hash length (15 hex chars = 60 bits)
-# Note: Birthday paradox collision probability ~50% at 2^30 (~1 billion) transactions
 
 REQUIRED_COLUMNS = ('date', 'description', 'amount')
 COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
@@ -68,13 +64,6 @@ def normalize_amount(value: str) -> str:
     return format(quantized, '.2f')
 
 
-def generate_transaction_id(date: str, description: str, amount: str) -> str:
-    """Build a deterministic transaction identifier from row contents."""
-
-    digest = hashlib.sha256(f'{date}{description}{amount}'.encode()).hexdigest()
-    return digest[:TRANSACTION_ID_LENGTH]
-
-
 def detect_required_columns(header_row: list[str]) -> tuple[dict[str, int], dict[str, int]] | None:
     """Return mappings for required and optional columns or ``None`` if required columns are missing."""
 
@@ -100,7 +89,7 @@ def iter_transactions(rows: Iterable[list[str]]) -> Iterator[Transaction]:
 
     column_map: dict[str, int] | None = None
     optional_map: dict[str, int] = {}
-    seen_ids: dict[str, int] = {}
+    builder = BatchFingerprintBuilder()
     for row in rows:
         if not row or all(not cell.strip() for cell in row):
             continue
@@ -126,17 +115,14 @@ def iter_transactions(rows: Iterable[list[str]]) -> Iterator[Transaction]:
         except ValueError:
             continue
 
-        transaction_id = None
+        native_id: str | None = None
         if 'transaction_id' in optional_map:
-            transaction_id = row[optional_map['transaction_id']].strip() or None
+            native_id = row[optional_map['transaction_id']].strip() or None
 
-        raw_id = transaction_id or generate_transaction_id(normalized_date, description, normalized_amount)
-        occurrence = seen_ids.get(raw_id, 0) + 1
-        seen_ids[raw_id] = occurrence
-        final_id = raw_id if occurrence == 1 else f'{raw_id}-{occurrence}'
+        fp = builder.add(normalized_date, normalized_amount, description, native_id=native_id)
 
         yield Transaction(
-            transaction_id=final_id,
+            transaction_id=fp.external_id,
             date=normalized_date,
             description=description,
             amount=normalized_amount,

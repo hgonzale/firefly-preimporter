@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections import defaultdict
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import requests
+from firefly_preimporter.dedup import CandidatePool, TransactionFingerprint, fingerprint_from_firefly, fingerprint_from_split
 from firefly_preimporter.models import FireflyPayload, UploadedGroup
 from firefly_preimporter.utils import get_verify_option, mask_account_number
 from requests.exceptions import HTTPError, RequestException
@@ -399,16 +401,16 @@ def fetch_recent_account_transactions(
     return results
 
 
-def _fetch_existing_external_ids(
+def _fetch_existing_transactions(
     settings: FireflyPreimporterSettings,
     payloads: list[FireflyPayload],
     *,
     session: Session | None = None,
-) -> set[str]:
-    """Pre-fetch external IDs that already exist in Firefly III.
+) -> list[TransactionFingerprint]:
+    """Pre-fetch transaction fingerprints that already exist in Firefly III.
 
     Queries each target account for transactions within the date range
-    of ``payloads`` and returns the set of ``external_id`` values found.
+    of ``payloads`` and returns fingerprints for all found transactions.
     """
 
     account_ids: set[int] = set()
@@ -422,7 +424,7 @@ def _fetch_existing_external_ids(
                 dates.append(split.date)
 
     if not account_ids or not dates:
-        return set()
+        return []
 
     if settings.firefly_api is None:  # pragma: no cover
         raise ValueError('Firefly API settings are required')
@@ -435,7 +437,7 @@ def _fetch_existing_external_ids(
         'Accept': 'application/json',
     }
     base_url = settings.firefly_api.api_base.rstrip('/')
-    existing: set[str] = set()
+    result: list[TransactionFingerprint] = []
 
     for account_id in account_ids:
         url: str | None = f'{base_url}/accounts/{account_id}/transactions'
@@ -471,9 +473,9 @@ def _fetch_existing_external_ids(
                     for txn in cast('list[object]', txns):
                         if isinstance(txn, Mapping):
                             txn_map = cast('Mapping[str, object]', txn)
-                            ext_id = txn_map.get('external_id')
-                            if isinstance(ext_id, str) and ext_id:
-                                existing.add(ext_id)
+                            fp = fingerprint_from_firefly(txn_map)
+                            if fp is not None:
+                                result.append(fp)
             links = body.get('links', {})
             if isinstance(links, Mapping):
                 links_map = cast('Mapping[str, object]', links)
@@ -483,7 +485,84 @@ def _fetch_existing_external_ids(
                 url = None
             params = None
 
-    return existing
+    return result
+
+
+def _collect_near_dup_decisions(
+    payloads: list[FireflyPayload],
+    existing: list[TransactionFingerprint],
+    known_ids: set[str],
+    threshold: float,
+    *,
+    emit: FireflyEmitter,
+    prompt_fn: Callable[[str], str] | None,
+) -> tuple[set[int], set[int]]:
+    """Group near-duplicate payloads, prompt the user, and return (skip_indices, warn_indices).
+
+    ``skip_indices``: payload indices that should be skipped.
+    ``warn_indices``: payload indices with a near-dup match the user chose to upload.
+    """
+
+    # Group incoming payloads by (date, amount, description)
+    incoming_groups: dict[tuple[str, str, str], list[tuple[int, TransactionFingerprint]]] = defaultdict(list)
+    for i, payload in enumerate(payloads):
+        if not payload.transactions:
+            continue
+        fp = fingerprint_from_split(payload.transactions[0])
+        if fp.external_id in known_ids:
+            continue
+        incoming_groups[(fp.date, fp.amount, fp.description)].append((i, fp))
+
+    pre_pool = CandidatePool(existing)
+    skip_indices: set[int] = set()
+    warn_indices: set[int] = set()
+
+    for group_key, members in incoming_groups.items():
+        date, amount, incoming_desc = group_key
+        matched: list[tuple[int, TransactionFingerprint, float]] = []
+        unmatched_indices: list[int] = []
+
+        for payload_index, fp in members:
+            match_result = pre_pool.find_near_duplicate(fp, threshold)
+            if match_result is not None:
+                match_fp, score = match_result
+                matched.append((payload_index, match_fp, score))
+            else:
+                unmatched_indices.append(payload_index)
+
+        if not matched:
+            continue
+
+        best_score = max(score for _, _, score in matched)
+        existing_desc = matched[0][1].description
+        in_count = len(matched) + len(unmatched_indices)
+        ex_count = len(matched)
+
+        emit(f'Near-duplicates detected — {date}  ${amount}  ({best_score:.0%} match)')
+        emit(f'  Incoming (×{in_count}) : "{incoming_desc}"')
+        emit(f'  Existing (×{ex_count}) : "{existing_desc}"')
+
+        unmatched_count = len(unmatched_indices)
+        if unmatched_indices:
+            options = f'[S]kip all  [U]pload all  [N]ew only (upload {unmatched_count} unmatched)'
+        else:
+            options = '[S]kip all  [U]pload all'
+
+        choice = prompt_fn(options).strip().lower() if prompt_fn is not None else 's'
+
+        if choice == 'u':
+            for idx, _, _ in matched:
+                warn_indices.add(idx)
+        elif choice == 'n' and unmatched_indices:
+            for idx, _, _ in matched:
+                skip_indices.add(idx)
+        else:
+            for idx, _, _ in matched:
+                skip_indices.add(idx)
+            for idx in unmatched_indices:
+                skip_indices.add(idx)
+
+    return skip_indices, warn_indices
 
 
 def upload_firefly_payloads(
@@ -493,23 +572,65 @@ def upload_firefly_payloads(
     emit: FireflyEmitter,
     batch_tag: str | None = None,
     dry_run: bool = False,
+    near_duplicate_action: str = 'prompt',
+    prompt_fn: Callable[[str], str] | None = None,
 ) -> int:
     want_dedup = any(p.error_if_duplicate_hash for p in payloads)
-    known_ids: set[str] = set()
+    existing: list[TransactionFingerprint] = []
     if want_dedup:
         try:
-            known_ids = _fetch_existing_external_ids(settings, payloads)
+            existing = _fetch_existing_transactions(settings, payloads)
         except RequestException as exc:
             emit(f'Warning: could not pre-fetch duplicates: {exc}', error=True)
 
+    known_ids: set[str] = {f.external_id for f in existing}
+    threshold = settings.firefly_api.near_duplicate_threshold if settings.firefly_api else 0.0
+
+    # Pre-flight: collect grouped near-dup decisions for prompt mode
+    near_dup_skip: set[int] = set()
+    near_dup_warn: set[int] = set()
+    if threshold > 0.0 and existing and near_duplicate_action == 'prompt':
+        near_dup_skip, near_dup_warn = _collect_near_dup_decisions(
+            payloads, existing, known_ids, threshold,
+            emit=emit, prompt_fn=prompt_fn,
+        )
+
+    # Pool for inline checking in non-prompt modes
+    upload_pool = (
+        CandidatePool(existing)
+        if threshold > 0.0 and existing and near_duplicate_action in ('skip', 'upload')
+        else None
+    )
+
     uploaded_groups: list[UploadedGroup] = []
-    for payload in payloads:
+    for i, payload in enumerate(payloads):
         status_label = _format_firefly_status(payload)
+
+        # Exact duplicate check
         if known_ids and payload.transactions:
             ext_id = payload.transactions[0].external_id
             if ext_id and ext_id in known_ids:
                 emit(f'Firefly upload {status_label} - duplicate (skipped)')
                 continue
+
+        # Near-duplicate handling
+        if near_duplicate_action == 'prompt':
+            if i in near_dup_skip:
+                emit(f'Firefly upload {status_label} - near-duplicate skipped')
+                continue
+            if i in near_dup_warn:
+                emit(f'Firefly upload {status_label} - near-duplicate, uploading')
+        elif upload_pool is not None and payload.transactions:
+            fp = fingerprint_from_split(payload.transactions[0])
+            match_result = upload_pool.find_near_duplicate(fp, threshold)
+            if match_result is not None:
+                _, score = match_result
+                if near_duplicate_action == 'skip':
+                    emit(f'Firefly upload {status_label} - near-duplicate skipped ({score:.0%} match)')
+                    continue
+                else:  # 'upload'
+                    emit(f'Firefly upload {status_label} - near-duplicate warning ({score:.0%} match), uploading')
+
         if dry_run:
             emit(f'[dry-run] Firefly upload {status_label} (skipped)')
             continue
