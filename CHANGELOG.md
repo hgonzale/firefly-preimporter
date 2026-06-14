@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.2 — 2026-06-14
+
+### Fixed
+- Near-duplicate detection no longer produces false positives when a deposit and a
+  withdrawal for the same account share the same date and amount. Matching is now
+  scoped to the same `account_id`.
+
 ## v0.6.1 — 2026-06-06
 
 ### Security
