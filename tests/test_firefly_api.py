@@ -695,6 +695,7 @@ def test_fetch_existing_transactions_returns_fingerprints() -> None:
     assert result[0].date == '2025-01-01'
     assert result[0].amount == '10.50'
     assert result[0].description == 'Coffee'
+    assert result[0].account_id == 1  # keyed from the fetch-loop account_id (source_id of _make_split)
     assert result[1].external_id == 'def'
     session.get.assert_called_once()
 
@@ -809,6 +810,7 @@ def _near_dup_existing() -> list[object]:
         date='2025-01-01',
         amount='10.00',
         description='Coffee at Starbucks Store',
+        account_id=1,  # matches _make_split()'s source_id=1
     )]
 
 
@@ -827,7 +829,7 @@ def test_upload_payloads_near_duplicate_action_skip(monkeypatch: pytest.MonkeyPa
 
     exit_code = upload_firefly_payloads(
         [payload], _near_dup_settings(),
-        emit=lambda msg, **_k: messages.append(msg),
+        emit=lambda message, **_k: messages.append(message),
         near_duplicate_action='skip',
     )
 
@@ -852,7 +854,7 @@ def test_upload_payloads_near_duplicate_action_upload(monkeypatch: pytest.Monkey
 
     exit_code = upload_firefly_payloads(
         [payload], _near_dup_settings(),
-        emit=lambda msg, **_k: messages.append(msg),
+        emit=lambda message, **_k: messages.append(message),
         near_duplicate_action='upload',
     )
 
@@ -929,7 +931,7 @@ def test_upload_payloads_near_duplicate_prompt_skip_all(monkeypatch: pytest.Monk
 
     exit_code = upload_firefly_payloads(
         [payload], _near_dup_settings(),
-        emit=lambda msg, **_k: messages.append(msg),
+        emit=lambda message, **_k: messages.append(message),
         near_duplicate_action='prompt',
         prompt_fn=lambda _msg: 's',
     )
@@ -972,6 +974,7 @@ def test_upload_payloads_near_duplicate_prompt_new_only(monkeypatch: pytest.Monk
     payload2 = _make_payload(transactions=[split2])
     one_existing = [TransactionFingerprint(
         external_id='old1', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store',
+        account_id=1,
     )]
     uploaded: list[str] = []
 
@@ -999,8 +1002,8 @@ def test_upload_payloads_near_duplicate_counts_match_no_new_only_option(monkeypa
     split1 = replace(_make_split(), external_id='new1', amount='10.00', description='Coffee at Starbucks')
     split2 = replace(_make_split(), external_id='new2', amount='10.00', description='Coffee at Starbucks')
     two_existing = [
-        TransactionFingerprint(external_id='old1', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store'),
-        TransactionFingerprint(external_id='old2', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store'),
+        TransactionFingerprint(external_id='old1', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store', account_id=1),
+        TransactionFingerprint(external_id='old2', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store', account_id=1),
     ]
     upload_called = False
 

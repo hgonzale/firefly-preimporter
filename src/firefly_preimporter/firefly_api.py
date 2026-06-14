@@ -473,7 +473,7 @@ def _fetch_existing_transactions(
                     for txn in cast('list[object]', txns):
                         if isinstance(txn, Mapping):
                             txn_map = cast('Mapping[str, object]', txn)
-                            fp = fingerprint_from_firefly(txn_map)
+                            fp = fingerprint_from_firefly(txn_map, account_id=account_id)
                             if fp is not None:
                                 result.append(fp)
             links = body.get('links', {})

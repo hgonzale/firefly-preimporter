@@ -23,6 +23,7 @@ class TransactionFingerprint:
     date: str         # YYYY-MM-DD
     amount: str       # positive, "%.2f"
     description: str
+    account_id: int | None = None  # asset account ID; None only for fingerprints built without split context
 
 
 def compute_external_id(date: str, amount: str, description: str) -> str:
@@ -70,17 +71,24 @@ def fingerprint_from_split(split: FireflyTransactionSplit) -> TransactionFingerp
         amount = f'{float(split.amount):.2f}'
     except (ValueError, TypeError):
         amount = split.amount
+    account_id = split.source_id if split.source_id is not None else split.destination_id
     return TransactionFingerprint(
         external_id=split.external_id,
         date=split.date,
         amount=amount,
         description=split.description,
+        account_id=account_id,
     )
 
 
-def fingerprint_from_firefly(txn_map: Mapping[str, object]) -> TransactionFingerprint | None:
+def fingerprint_from_firefly(
+    txn_map: Mapping[str, object],
+    *,
+    account_id: int | None = None,
+) -> TransactionFingerprint | None:
     """Parse a Firefly III API response transaction object into a ``TransactionFingerprint``.
 
+    ``account_id`` should be the asset account being queried (the fetch-loop context).
     Returns ``None`` if required fields are absent or malformed.
     """
 
@@ -103,21 +111,27 @@ def fingerprint_from_firefly(txn_map: Mapping[str, object]) -> TransactionFinger
 
     description = str(txn_map.get('description') or '').strip()
 
-    return TransactionFingerprint(external_id=ext_id, date=date, amount=amount, description=description)
+    return TransactionFingerprint(
+        external_id=ext_id,
+        date=date,
+        amount=amount,
+        description=description,
+        account_id=account_id,
+    )
 
 
 class CandidatePool:
     """One-to-one near-duplicate matching pool built from pre-fetched Firefly transactions.
 
-    Candidates are keyed by ``(date, amount)``. Each call to ``find_near_duplicate``
-    consumes the best match so the same existing transaction cannot satisfy two
-    different incoming transactions.
+    Candidates are keyed by ``(date, amount, account_id)``. Each call to
+    ``find_near_duplicate`` consumes the best match so the same existing transaction
+    cannot satisfy two different incoming transactions.
     """
 
     def __init__(self, existing: list[TransactionFingerprint]) -> None:
-        self._pool: dict[tuple[str, str], list[TransactionFingerprint]] = defaultdict(list)
+        self._pool: dict[tuple[str, str, int | None], list[TransactionFingerprint]] = defaultdict(list)
         for fp in existing:
-            self._pool[(fp.date, fp.amount)].append(fp)
+            self._pool[(fp.date, fp.amount, fp.account_id)].append(fp)
 
     def find_near_duplicate(
         self,
@@ -129,7 +143,7 @@ class CandidatePool:
         The matched candidate is removed from the pool (one-to-one matching).
         """
 
-        candidates = self._pool.get((incoming.date, incoming.amount))
+        candidates = self._pool.get((incoming.date, incoming.amount, incoming.account_id))
         if not candidates:
             return None
 

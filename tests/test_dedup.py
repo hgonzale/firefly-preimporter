@@ -18,8 +18,11 @@ def _fp(
     amount: str = '45.00',
     description: str = 'PAYMENT 123',
     external_id: str = 'abc123',
+    account_id: int | None = 1,
 ) -> TransactionFingerprint:
-    return TransactionFingerprint(external_id=external_id, date=date, amount=amount, description=description)
+    return TransactionFingerprint(
+        external_id=external_id, date=date, amount=amount, description=description, account_id=account_id
+    )
 
 
 def _make_split(
@@ -113,15 +116,17 @@ def test_fingerprint_from_split_preserves_fields() -> None:
     assert fp.external_id == 'xyz'
     assert fp.date == '2024-05-06'
     assert fp.description == 'PAYMENT'
+    assert fp.account_id == 1  # source_id from _make_split
 
 
 # --- fingerprint_from_firefly ---
 
 def test_fingerprint_from_firefly_normalizes_iso_date() -> None:
     txn = {'external_id': 'abc', 'date': '2024-05-06T00:00:00+00:00', 'amount': '45.00', 'description': 'PAY'}
-    fp = fingerprint_from_firefly(txn)
+    fp = fingerprint_from_firefly(txn, account_id=7)
     assert fp is not None
     assert fp.date == '2024-05-06'
+    assert fp.account_id == 7
 
 
 def test_fingerprint_from_firefly_normalizes_amount() -> None:
@@ -215,3 +220,21 @@ def test_candidate_pool_score_uses_lowercased_descriptions() -> None:
     assert result is not None
     _, score = result
     assert score == 1.0
+
+
+def test_candidate_pool_different_account_no_match() -> None:
+    """Transactions for a different account_id must never be flagged as near-duplicates."""
+    existing = [_fp(description='PAYMENT REDACTED', external_id='old', account_id=2)]
+    pool = CandidatePool(existing)
+    incoming = _fp(description='PAYMENT 123456', external_id='new', account_id=1)
+    assert pool.find_near_duplicate(incoming, threshold=0.5) is None
+
+
+def test_candidate_pool_same_account_matches() -> None:
+    """Same account_id still matches when description similarity is above threshold."""
+    existing = [_fp(description='PAYMENT REDACTED', external_id='old', account_id=1)]
+    pool = CandidatePool(existing)
+    incoming = _fp(description='PAYMENT 123456', external_id='new', account_id=1)
+    result = pool.find_near_duplicate(incoming, threshold=0.5)
+    assert result is not None
+    assert result[0].external_id == 'old'
