@@ -533,33 +533,37 @@ def _collect_near_dup_decisions(
         if not matched:
             continue
 
-        best_score = max(score for _, _, score in matched)
-        existing_desc = matched[0][1].description
         in_count = len(matched) + len(unmatched_indices)
         ex_count = len(matched)
-
-        emit(f'Near-duplicates detected — {date}  ${amount}  ({best_score:.0%} match)')
-        emit(f'  Incoming (×{in_count}) : "{incoming_desc}"')
-        emit(f'  Existing (×{ex_count}) : "{existing_desc}"')
-
         unmatched_count = len(unmatched_indices)
+
+        emit(f'Incoming: {date}  ${amount}  "{incoming_desc}"  (×{in_count} in this batch)')
+        emit('Already in Firefly with the same date and amount:')
+        for line_num, (_, match_fp, score) in enumerate(matched, start=1):
+            emit(f'  {line_num}. "{match_fp.description}"   {score:.0%} match')
         if unmatched_indices:
-            options = f'[S]kip all  [U]pload all  [N]ew only (upload {unmatched_count} unmatched)'
+            emit(f'  ({unmatched_count} incoming with no match — new)')
+
+        if unmatched_indices:
+            options = (
+                f'[S]kip the {ex_count} matched, upload the {unmatched_count} new (default)  '
+                f'[U]pload all {in_count} anyway  [K] Skip all {in_count}'
+            )
         else:
-            options = '[S]kip all  [U]pload all'
+            options = f'[S]kip the {ex_count} matched (default)  [U]pload anyway'
 
         choice = prompt_fn(options).strip().lower() if prompt_fn is not None else 's'
 
         if choice == 'u':
             for idx, _, _ in matched:
                 warn_indices.add(idx)
-        elif choice == 'n' and unmatched_indices:
-            for idx, _, _ in matched:
-                skip_indices.add(idx)
-        else:
+        elif choice == 'k':
             for idx, _, _ in matched:
                 skip_indices.add(idx)
             for idx in unmatched_indices:
+                skip_indices.add(idx)
+        else:
+            for idx, _, _ in matched:
                 skip_indices.add(idx)
 
     return skip_indices, warn_indices

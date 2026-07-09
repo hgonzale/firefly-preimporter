@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.6.3 — 2026-07-08
+
+### Changed
+- Reworked the near-duplicate prompt so it's clear the decision only applies to the
+  current match group, not the whole run. Each matched existing transaction is now
+  listed individually with its own description and match score (instead of one
+  blended score for the group), and the header states the incoming transaction's
+  date/amount and how many transactions in this batch share it.
+- The default choice (pressing Enter, or scripted use with no `prompt_fn`) is now
+  labeled `(default)` directly in the prompt, and skips only the matched
+  transactions while uploading anything new in the group. Skipping the whole group,
+  including new/unmatched transactions, is now a separate `[K] Skip all` option
+  (previously this was the default/only "skip" behavior, and the old `[N]ew only`
+  option covered what is now the default).
+
 ## v0.6.2 — 2026-06-14
 
 ### Fixed

@@ -965,9 +965,9 @@ def test_upload_payloads_near_duplicate_prompt_upload_all(monkeypatch: pytest.Mo
     assert upload_called
 
 
-def test_upload_payloads_near_duplicate_prompt_new_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_upload_payloads_near_duplicate_prompt_skip_matched_default(monkeypatch: pytest.MonkeyPatch) -> None:
     from firefly_preimporter.dedup import TransactionFingerprint
-    # 2 incoming, 1 existing: matched one should skip, unmatched should upload
+    # 2 incoming, 1 existing: matched one should skip, unmatched should upload (the default/'s' choice)
     split1 = replace(_make_split(), external_id='new1', amount='10.00', description='Coffee at Starbucks')
     split2 = replace(_make_split(), external_id='new2', amount='10.00', description='Coffee at Starbucks')
     payload1 = _make_payload(transactions=[split1])
@@ -989,16 +989,17 @@ def test_upload_payloads_near_duplicate_prompt_new_only(monkeypatch: pytest.Monk
         [payload1, payload2], _near_dup_settings(),
         emit=lambda *_a, **_k: None,
         near_duplicate_action='prompt',
-        prompt_fn=lambda _msg: 'n',
+        prompt_fn=lambda _msg: 's',
     )
 
     assert exit_code == 0
     assert len(uploaded) == 1  # only the unmatched one uploaded
 
 
-def test_upload_payloads_near_duplicate_counts_match_no_new_only_option(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_upload_payloads_near_duplicate_counts_match_no_skip_all_option(monkeypatch: pytest.MonkeyPatch) -> None:
     from firefly_preimporter.dedup import TransactionFingerprint
-    # 2 incoming, 2 existing: 'n' is not a valid option, should default to skip
+    # 2 incoming, 2 existing (nothing unmatched): the "skip all"/'k' choice isn't offered,
+    # since with no unmatched remainder "skip matched" and "skip all" are the same thing.
     split1 = replace(_make_split(), external_id='new1', amount='10.00', description='Coffee at Starbucks')
     split2 = replace(_make_split(), external_id='new2', amount='10.00', description='Coffee at Starbucks')
     two_existing = [
@@ -1020,9 +1021,9 @@ def test_upload_payloads_near_duplicate_counts_match_no_new_only_option(monkeypa
         _near_dup_settings(),
         emit=lambda *_a, **_k: None,
         near_duplicate_action='prompt',
-        prompt_fn=lambda msg: prompted_options.append(msg) or 'n',  # type: ignore[func-returns-value]
+        prompt_fn=lambda msg: prompted_options.append(msg) or 's',  # type: ignore[func-returns-value]
     )
 
     assert exit_code == 0
-    assert not upload_called  # 'n' treated as skip when no unmatched
-    assert any('[N]' not in opt for opt in prompted_options)  # new-only not offered
+    assert not upload_called  # default/'s' skips the matched ones; nothing unmatched to upload
+    assert any('[K]' not in opt for opt in prompted_options)  # skip-all not offered separately
