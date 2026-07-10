@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.1 — 2026-07-10
+
+### Fixed
+- Account resolution no longer skips matching against Firefly's registered
+  accounts just because a file-derived account number is all-digit (e.g. a
+  credit card number). Previously this caused uploads to fail with
+  "Currency for account ... not found" for numeric account numbers that had
+  a matching Firefly account.
+- Benign `ofxtools` warnings (e.g. `UnknownTagWarning` for QBO-only fields
+  like `MCC`, `MERCHCAT`) are now routed through the OFX processor's own
+  logger at debug level instead of being printed directly to stderr.
+
 ## v0.7.0 — 2026-07-10
 
 ### Added

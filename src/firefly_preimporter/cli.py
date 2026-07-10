@@ -391,7 +391,12 @@ def _resolve_account_id(
 ) -> str | None:
     """Return the best account id candidate for the current job."""
     if result.account_id:
-        if result.account_id.isdigit() or not require_resolution:
+        # result.account_id always comes from the source file's own account
+        # number/ID, never a Firefly ID, even when it happens to be all-digit
+        # (e.g. a credit card number) - so it must always be matched against
+        # Firefly's registered account numbers, unlike the --account-id flag
+        # below, which a caller may pass a raw Firefly ID for directly.
+        if not require_resolution:
             return result.account_id
         if settings is not None:
             accounts = _get_asset_accounts(args, settings)

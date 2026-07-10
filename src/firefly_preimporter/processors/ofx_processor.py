@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import logging
 import warnings
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -13,7 +14,8 @@ from firefly_preimporter.models import ProcessingJob, ProcessingResult, Transact
 from ofxtools.header import OFXHeaderError
 from ofxtools.models.base import OFXSpecError
 from ofxtools.Parser import OFXTree, ParseError
-from ofxtools.Types import OFXTypeWarning
+
+LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
     from collections.abc import Iterator
@@ -45,11 +47,14 @@ def _iter_ofx_transactions(path: Path) -> Iterator[tuple[str | None, OFXTransact
 
     try:
         parser.parse(io.BytesIO(raw))
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', category=OFXTypeWarning)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
             ofx = parser.convert()
     except (OFXHeaderError, ParseError, OFXSpecError) as exc:
         raise ValueError(f'Failed to parse OFX file: {path}') from exc
+
+    for warning in caught:
+        LOGGER.debug('ofxtools warning while parsing %s: %s', path, warning.message)
 
     for statement in getattr(ofx, 'statements', []) or []:
         account = getattr(statement, 'account', None)

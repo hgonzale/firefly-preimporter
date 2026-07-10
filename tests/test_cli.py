@@ -404,6 +404,37 @@ def test_resolve_account_id_matches_account_number(monkeypatch: pytest.MonkeyPat
     assert resolved == '55'
 
 
+def test_resolve_account_id_matches_all_digit_account_number(
+    monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob
+) -> None:
+    """A file-derived account_id that happens to be all-digit (e.g. a card number)
+    must still be matched against Firefly's registered accounts, not assumed to
+    already be a Firefly ID."""
+    args = Namespace(upload=True)
+    settings = _settings()
+    accounts: list[dict[str, object]] = [
+        {'id': '42', 'attributes': {'name': 'Card', 'account_number': '5474151647187316'}}
+    ]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    result = ProcessingResult(job=dummy_job, account_id='5474151647187316')
+    resolved = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
+    assert resolved == '42'
+
+
+def test_resolve_account_id_all_digit_no_match_returns_raw(
+    monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob
+) -> None:
+    """If no Firefly account is registered with the file's all-digit account number,
+    the raw value is returned as a last resort."""
+    args = Namespace(upload=True)
+    settings = _settings()
+    accounts: list[dict[str, object]] = [{'id': '1', 'attributes': {'name': 'Other', 'account_number': '9999'}}]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    result = ProcessingResult(job=dummy_job, account_id='5474151647187316')
+    resolved = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
+    assert resolved == '5474151647187316'
+
+
 def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
     args = Namespace(upload=True)
     settings = _settings()

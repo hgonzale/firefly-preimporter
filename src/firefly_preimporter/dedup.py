@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
-from collections.abc import Mapping
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from firefly_preimporter.models import FireflyTransactionSplit
 
 _TRANSACTION_ID_LENGTH = 15
@@ -20,8 +21,8 @@ class TransactionFingerprint:
     """All fields needed to make a duplicate-detection decision."""
 
     external_id: str
-    date: str         # YYYY-MM-DD
-    amount: str       # positive, "%.2f"
+    date: str  # YYYY-MM-DD
+    amount: str  # positive, "%.2f"
     description: str
     account_id: int | None = None  # asset account ID; None only for fingerprints built without split context
 

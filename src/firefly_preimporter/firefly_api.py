@@ -9,7 +9,12 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import requests
-from firefly_preimporter.dedup import CandidatePool, TransactionFingerprint, fingerprint_from_firefly, fingerprint_from_split
+from firefly_preimporter.dedup import (
+    CandidatePool,
+    TransactionFingerprint,
+    fingerprint_from_firefly,
+    fingerprint_from_split,
+)
 from firefly_preimporter.models import FireflyPayload, UploadedGroup
 from firefly_preimporter.utils import get_verify_option, mask_account_number
 from requests.exceptions import HTTPError, RequestException
@@ -26,7 +31,6 @@ DEFAULT_PAGE_SIZE = 50  # Firefly III API default pagination limit
 
 class FireflyEmitter(Protocol):
     def __call__(self, message: str, *, error: bool = False, verbose_only: bool = False) -> None: ...
-
 
 
 def _format_firefly_status(payload: FireflyPayload) -> str:
@@ -537,7 +541,7 @@ def _collect_near_dup_decisions(
         ex_count = len(matched)
         unmatched_count = len(unmatched_indices)
 
-        emit(f'Incoming: {date}  ${amount}  "{incoming_desc}"  (×{in_count} in this batch)')
+        emit(f'Incoming: {date}  ${amount}  "{incoming_desc}"  (x{in_count} in this batch)')
         emit('Already in Firefly with the same date and amount:')
         for line_num, (_, match_fp, score) in enumerate(matched, start=1):
             emit(f'  {line_num}. "{match_fp.description}"   {score:.0%} match')
@@ -595,8 +599,12 @@ def upload_firefly_payloads(
     near_dup_warn: set[int] = set()
     if threshold > 0.0 and existing and near_duplicate_action == 'prompt':
         near_dup_skip, near_dup_warn = _collect_near_dup_decisions(
-            payloads, existing, known_ids, threshold,
-            emit=emit, prompt_fn=prompt_fn,
+            payloads,
+            existing,
+            known_ids,
+            threshold,
+            emit=emit,
+            prompt_fn=prompt_fn,
         )
 
     # Pool for inline checking in non-prompt modes
@@ -632,8 +640,8 @@ def upload_firefly_payloads(
                 if near_duplicate_action == 'skip':
                     emit(f'Firefly upload {status_label} - near-duplicate skipped ({score:.0%} match)')
                     continue
-                else:  # 'upload'
-                    emit(f'Firefly upload {status_label} - near-duplicate warning ({score:.0%} match), uploading')
+                # 'upload'
+                emit(f'Firefly upload {status_label} - near-duplicate warning ({score:.0%} match), uploading')
 
         if dry_run:
             emit(f'[dry-run] Firefly upload {status_label} (skipped)')

@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from firefly_preimporter.models import ProcessingJob, SourceFormat
 from firefly_preimporter.dedup import compute_external_id
+from firefly_preimporter.models import ProcessingJob, SourceFormat
 from firefly_preimporter.processors.csv_processor import (
     normalize_amount,
     normalize_date,

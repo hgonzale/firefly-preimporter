@@ -10,6 +10,7 @@ import pytest
 import firefly_preimporter.firefly_api as firefly_api
 import requests
 from firefly_preimporter.config import CommonSettings, FidiSettings, FireflyApiSettings, FireflyPreimporterSettings
+from firefly_preimporter.dedup import TransactionFingerprint
 from firefly_preimporter.firefly_api import (
     fetch_asset_accounts,
     fetch_recent_account_transactions,
@@ -622,10 +623,10 @@ def test_upload_firefly_payloads_skips_client_side_duplicates(monkeypatch: pytes
         upload_called = True
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload_transactions)
-    from firefly_preimporter.dedup import TransactionFingerprint
+    fingerprint = TransactionFingerprint(external_id='abc', date='2025-01-01', amount='10.00', description='Coffee')
     monkeypatch.setattr(
         'firefly_preimporter.firefly_api._fetch_existing_transactions',
-        lambda *_a, **_k: [TransactionFingerprint(external_id='abc', date='2025-01-01', amount='10.00', description='Coffee')],
+        lambda *_a, **_k: [fingerprint],
     )
     messages: list[str] = []
 
@@ -664,7 +665,6 @@ def test_upload_firefly_payloads_skips_dedup_when_duplicates_allowed(monkeypatch
 
 
 def test_fetch_existing_transactions_returns_fingerprints() -> None:
-    from firefly_preimporter.dedup import TransactionFingerprint
     split = _make_split()
     payload = _make_payload(transactions=[split])
     session = Mock(spec=requests.Session)
@@ -676,8 +676,18 @@ def test_fetch_existing_transactions_returns_fingerprints() -> None:
                 'id': '100',
                 'attributes': {
                     'transactions': [
-                        {'external_id': 'abc', 'date': '2025-01-01T00:00:00+00:00', 'amount': '10.50', 'description': 'Coffee'},
-                        {'external_id': 'def', 'date': '2025-01-02T00:00:00+00:00', 'amount': '25.00', 'description': 'Groceries'},
+                        {
+                            'external_id': 'abc',
+                            'date': '2025-01-01T00:00:00+00:00',
+                            'amount': '10.50',
+                            'description': 'Coffee',
+                        },
+                        {
+                            'external_id': 'def',
+                            'date': '2025-01-02T00:00:00+00:00',
+                            'amount': '25.00',
+                            'description': 'Groceries',
+                        },
                     ],
                 },
             },
@@ -793,25 +803,29 @@ def test_fetch_recent_account_transactions_paginates() -> None:
 
 # --- Near-duplicate upload tests ---
 
+
 def _near_dup_settings() -> FireflyPreimporterSettings:
-    from firefly_preimporter.config import FireflyApiSettings as _FAS
     s = _settings()
     return FireflyPreimporterSettings(
         common=s.common,
         fidi=s.fidi,
-        firefly_api=_FAS(api_base=s.firefly_api.api_base, near_duplicate_threshold=0.5),  # type: ignore[union-attr]
+        firefly_api=FireflyApiSettings(
+            api_base=s.firefly_api.api_base,  # type: ignore[union-attr]
+            near_duplicate_threshold=0.5,
+        ),
     )
 
 
 def _near_dup_existing() -> list[object]:
-    from firefly_preimporter.dedup import TransactionFingerprint
-    return [TransactionFingerprint(
-        external_id='existing-xyz',
-        date='2025-01-01',
-        amount='10.00',
-        description='Coffee at Starbucks Store',
-        account_id=1,  # matches _make_split()'s source_id=1
-    )]
+    return [
+        TransactionFingerprint(
+            external_id='existing-xyz',
+            date='2025-01-01',
+            amount='10.00',
+            description='Coffee at Starbucks Store',
+            account_id=1,  # matches _make_split()'s source_id=1
+        )
+    ]
 
 
 def test_upload_payloads_near_duplicate_action_skip(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -824,11 +838,14 @@ def test_upload_payloads_near_duplicate_action_skip(monkeypatch: pytest.MonkeyPa
         upload_called = True
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload)
-    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing())
+    monkeypatch.setattr(
+        'firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing()
+    )
     messages: list[str] = []
 
     exit_code = upload_firefly_payloads(
-        [payload], _near_dup_settings(),
+        [payload],
+        _near_dup_settings(),
         emit=lambda message, **_k: messages.append(message),
         near_duplicate_action='skip',
     )
@@ -849,11 +866,14 @@ def test_upload_payloads_near_duplicate_action_upload(monkeypatch: pytest.Monkey
         return SimpleNamespace(status_code=200, text='{}', json=lambda: {'data': []})
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload)
-    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing())
+    monkeypatch.setattr(
+        'firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing()
+    )
     messages: list[str] = []
 
     exit_code = upload_firefly_payloads(
-        [payload], _near_dup_settings(),
+        [payload],
+        _near_dup_settings(),
         emit=lambda message, **_k: messages.append(message),
         near_duplicate_action='upload',
     )
@@ -874,10 +894,13 @@ def test_upload_payloads_near_duplicate_below_threshold_uploads(monkeypatch: pyt
         return SimpleNamespace(status_code=200, text='{}', json=lambda: {'data': []})
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload)
-    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing())
+    monkeypatch.setattr(
+        'firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing()
+    )
 
     exit_code = upload_firefly_payloads(
-        [payload], _near_dup_settings(),
+        [payload],
+        _near_dup_settings(),
         emit=lambda *_a, **_k: None,
         near_duplicate_action='skip',
     )
@@ -887,12 +910,14 @@ def test_upload_payloads_near_duplicate_below_threshold_uploads(monkeypatch: pyt
 
 
 def test_upload_payloads_near_duplicate_disabled_at_zero_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
-    from firefly_preimporter.config import FireflyApiSettings as _FAS
     s = _settings()
     zero_settings = FireflyPreimporterSettings(
         common=s.common,
         fidi=s.fidi,
-        firefly_api=_FAS(api_base=s.firefly_api.api_base, near_duplicate_threshold=0.0),  # type: ignore[union-attr]
+        firefly_api=FireflyApiSettings(
+            api_base=s.firefly_api.api_base,  # type: ignore[union-attr]
+            near_duplicate_threshold=0.0,
+        ),
     )
     split = replace(_make_split(), amount='10.00', description='Coffee at Starbucks')
     payload = _make_payload(transactions=[split])
@@ -904,10 +929,13 @@ def test_upload_payloads_near_duplicate_disabled_at_zero_threshold(monkeypatch: 
         return SimpleNamespace(status_code=200, text='{}', json=lambda: {'data': []})
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload)
-    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing())
+    monkeypatch.setattr(
+        'firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing()
+    )
 
     exit_code = upload_firefly_payloads(
-        [payload], zero_settings,
+        [payload],
+        zero_settings,
         emit=lambda *_a, **_k: None,
         near_duplicate_action='skip',
     )
@@ -926,11 +954,14 @@ def test_upload_payloads_near_duplicate_prompt_skip_all(monkeypatch: pytest.Monk
         upload_called = True
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload)
-    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing())
+    monkeypatch.setattr(
+        'firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing()
+    )
     messages: list[str] = []
 
     exit_code = upload_firefly_payloads(
-        [payload], _near_dup_settings(),
+        [payload],
+        _near_dup_settings(),
         emit=lambda message, **_k: messages.append(message),
         near_duplicate_action='prompt',
         prompt_fn=lambda _msg: 's',
@@ -952,10 +983,13 @@ def test_upload_payloads_near_duplicate_prompt_upload_all(monkeypatch: pytest.Mo
         return SimpleNamespace(status_code=200, text='{}', json=lambda: {'data': []})
 
     monkeypatch.setattr('firefly_preimporter.firefly_api.upload_transactions', fake_upload)
-    monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing())
+    monkeypatch.setattr(
+        'firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: _near_dup_existing()
+    )
 
     exit_code = upload_firefly_payloads(
-        [payload], _near_dup_settings(),
+        [payload],
+        _near_dup_settings(),
         emit=lambda *_a, **_k: None,
         near_duplicate_action='prompt',
         prompt_fn=lambda _msg: 'u',
@@ -966,16 +1000,20 @@ def test_upload_payloads_near_duplicate_prompt_upload_all(monkeypatch: pytest.Mo
 
 
 def test_upload_payloads_near_duplicate_prompt_skip_matched_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    from firefly_preimporter.dedup import TransactionFingerprint
     # 2 incoming, 1 existing: matched one should skip, unmatched should upload (the default/'s' choice)
     split1 = replace(_make_split(), external_id='new1', amount='10.00', description='Coffee at Starbucks')
     split2 = replace(_make_split(), external_id='new2', amount='10.00', description='Coffee at Starbucks')
     payload1 = _make_payload(transactions=[split1])
     payload2 = _make_payload(transactions=[split2])
-    one_existing = [TransactionFingerprint(
-        external_id='old1', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store',
-        account_id=1,
-    )]
+    one_existing = [
+        TransactionFingerprint(
+            external_id='old1',
+            date='2025-01-01',
+            amount='10.00',
+            description='Coffee at Starbucks Store',
+            account_id=1,
+        )
+    ]
     uploaded: list[str] = []
 
     def fake_upload(_s: object, p: FireflyPayload) -> SimpleNamespace:
@@ -986,7 +1024,8 @@ def test_upload_payloads_near_duplicate_prompt_skip_matched_default(monkeypatch:
     monkeypatch.setattr('firefly_preimporter.firefly_api._fetch_existing_transactions', lambda *_a, **_k: one_existing)
 
     exit_code = upload_firefly_payloads(
-        [payload1, payload2], _near_dup_settings(),
+        [payload1, payload2],
+        _near_dup_settings(),
         emit=lambda *_a, **_k: None,
         near_duplicate_action='prompt',
         prompt_fn=lambda _msg: 's',
@@ -997,14 +1036,17 @@ def test_upload_payloads_near_duplicate_prompt_skip_matched_default(monkeypatch:
 
 
 def test_upload_payloads_near_duplicate_counts_match_no_skip_all_option(monkeypatch: pytest.MonkeyPatch) -> None:
-    from firefly_preimporter.dedup import TransactionFingerprint
     # 2 incoming, 2 existing (nothing unmatched): the "skip all"/'k' choice isn't offered,
     # since with no unmatched remainder "skip matched" and "skip all" are the same thing.
     split1 = replace(_make_split(), external_id='new1', amount='10.00', description='Coffee at Starbucks')
     split2 = replace(_make_split(), external_id='new2', amount='10.00', description='Coffee at Starbucks')
     two_existing = [
-        TransactionFingerprint(external_id='old1', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store', account_id=1),
-        TransactionFingerprint(external_id='old2', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store', account_id=1),
+        TransactionFingerprint(
+            external_id='old1', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store', account_id=1
+        ),
+        TransactionFingerprint(
+            external_id='old2', date='2025-01-01', amount='10.00', description='Coffee at Starbucks Store', account_id=1
+        ),
     ]
     upload_called = False
 

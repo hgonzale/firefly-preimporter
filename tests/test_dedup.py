@@ -47,6 +47,7 @@ def _make_split(
 
 # --- BatchFingerprintBuilder ---
 
+
 def test_batch_builder_first_occurrence_no_suffix() -> None:
     builder = BatchFingerprintBuilder()
     fp = builder.add('2024-05-06', '45.00', 'PAYMENT 123')
@@ -104,6 +105,7 @@ def test_batch_builder_native_id_collision_gets_suffix() -> None:
 
 # --- fingerprint_from_split ---
 
+
 def test_fingerprint_from_split_normalizes_amount() -> None:
     split = _make_split(amount='10')
     fp = fingerprint_from_split(split)
@@ -120,6 +122,7 @@ def test_fingerprint_from_split_preserves_fields() -> None:
 
 
 # --- fingerprint_from_firefly ---
+
 
 def test_fingerprint_from_firefly_normalizes_iso_date() -> None:
     txn = {'external_id': 'abc', 'date': '2024-05-06T00:00:00+00:00', 'amount': '45.00', 'description': 'PAY'}
@@ -157,6 +160,7 @@ def test_fingerprint_from_firefly_returns_none_on_malformed_amount() -> None:
 
 
 # --- CandidatePool ---
+
 
 def test_candidate_pool_finds_match_above_threshold() -> None:
     existing = [_fp(description='PAYMENT REDACTED', external_id='old')]
