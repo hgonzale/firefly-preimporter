@@ -5,6 +5,12 @@ import pytest
 from firefly_preimporter.detect import detect_format, gather_jobs, iter_jobs
 from firefly_preimporter.models import SourceFormat
 
+MINIMAL_OFX_HEADER = (
+    b'OFXHEADER:100\r\nDATA:OFXSGML\r\nVERSION:102\r\nSECURITY:NONE\r\n'
+    b'ENCODING:USASCII\r\nCHARSET:NONE\r\nCOMPRESSION:NONE\r\n'
+    b'OLDFILEUID:NONE\r\nNEWFILEUID:NONE\r\n\r\n<OFX></OFX>'
+)
+
 
 def test_detect_format_extensions(tmp_path: Path) -> None:
     csv_file = tmp_path / 'statement.csv'
@@ -14,6 +20,34 @@ def test_detect_format_extensions(tmp_path: Path) -> None:
 
     assert detect_format(csv_file) is SourceFormat.CSV
     assert detect_format(ofx_file) is SourceFormat.OFX
+
+
+def test_detect_format_qbo_extension(tmp_path: Path) -> None:
+    qbo_file = tmp_path / 'statement.qbo'
+    qbo_file.write_text('qbo', encoding='utf-8')
+
+    assert detect_format(qbo_file) is SourceFormat.OFX
+
+
+def test_detect_format_sniffs_unknown_extension_with_ofx_content(tmp_path: Path) -> None:
+    weird = tmp_path / 'weird.bank-export'
+    weird.write_bytes(MINIMAL_OFX_HEADER)
+
+    assert detect_format(weird) is SourceFormat.OFX
+
+
+def test_detect_format_unknown_extension_garbage_stays_unknown(tmp_path: Path) -> None:
+    weird = tmp_path / 'notes.ext'
+    weird.write_text('just some notes\n', encoding='utf-8')
+
+    assert detect_format(weird) is SourceFormat.UNKNOWN
+
+
+def test_detect_format_empty_unknown_extension_file_is_unknown(tmp_path: Path) -> None:
+    empty = tmp_path / 'empty.dat'
+    empty.write_bytes(b'')
+
+    assert detect_format(empty) is SourceFormat.UNKNOWN
 
 
 def test_iter_jobs_directory(tmp_path: Path) -> None:

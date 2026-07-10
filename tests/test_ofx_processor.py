@@ -112,6 +112,39 @@ def test_ofx_unique_records_ids_are_unchanged(monkeypatch: pytest.MonkeyPatch, t
     assert result.transactions[1].transaction_id == 'FIT002'
 
 
+def test_iter_ofx_transactions_raises_value_error_on_malformed_header(tmp_path: Path) -> None:
+    """A file whose header doesn't parse as OFX raises a clean ValueError, not a SyntaxError."""
+    ofx_file = tmp_path / 'bad_header.ofx'
+    ofx_file.write_bytes(b'NOT AN OFX HEADER AT ALL\r\n\r\n<OFX></OFX>')
+
+    with pytest.raises(ValueError, match='Failed to parse OFX file'):
+        list(ofx_processor._iter_ofx_transactions(ofx_file))  # pyright: ignore[reportPrivateUsage]
+
+
+def test_iter_ofx_transactions_raises_value_error_on_malformed_body(tmp_path: Path) -> None:
+    """A file with a valid header but unparseable tag soup raises a clean ValueError."""
+    ofx_bytes = (
+        b'OFXHEADER:100\r\nDATA:OFXSGML\r\nVERSION:102\r\nSECURITY:NONE\r\n'
+        b'ENCODING:USASCII\r\nCHARSET:NONE\r\nCOMPRESSION:NONE\r\n'
+        b'OLDFILEUID:NONE\r\nNEWFILEUID:NONE\r\n\r\n'
+        b'<OFX><TAG>value</TAG>stray tail text<NEXT>more</NEXT></OFX>'
+    )
+    ofx_file = tmp_path / 'bad_body.ofx'
+    ofx_file.write_bytes(ofx_bytes)
+
+    with pytest.raises(ValueError, match='Failed to parse OFX file'):
+        list(ofx_processor._iter_ofx_transactions(ofx_file))  # pyright: ignore[reportPrivateUsage]
+
+
+def test_iter_ofx_transactions_raises_value_error_on_empty_file(tmp_path: Path) -> None:
+    """An empty OFX file raises promptly instead of hanging in ofxtools' header parser."""
+    ofx_file = tmp_path / 'empty.ofx'
+    ofx_file.write_bytes(b'')
+
+    with pytest.raises(ValueError, match='Failed to parse OFX file'):
+        list(ofx_processor._iter_ofx_transactions(ofx_file))  # pyright: ignore[reportPrivateUsage]
+
+
 def test_iter_ofx_parses_utf8_content_declared_as_charset_1252(tmp_path: Path) -> None:
     """CHARSET:1252 header with UTF-8 body (Apple Card export bug) parses correctly."""
     # \xc3\x8f = U+00CF (Ï) in UTF-8; byte 0x8f is undefined in cp1252 and would

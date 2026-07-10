@@ -10,8 +10,9 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from firefly_preimporter.models import ProcessingJob, ProcessingResult, Transaction
+from ofxtools.header import OFXHeaderError
 from ofxtools.models.base import OFXSpecError
-from ofxtools.Parser import OFXTree
+from ofxtools.Parser import OFXTree, ParseError
 from ofxtools.Types import OFXTypeWarning
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers only
@@ -34,18 +35,21 @@ TRANSACTION_ID_LENGTH = 15  # Truncated SHA256 hash length (15 hex chars = 60 bi
 def _iter_ofx_transactions(path: Path) -> Iterator[tuple[str | None, OFXTransaction]]:
     """Yield ``(account_id, transaction)`` tuples extracted via ``ofxtools``."""
 
+    if path.stat().st_size == 0:
+        raise ValueError(f'Failed to parse OFX file: {path}')
+
     # Apple Card declares CHARSET:1252 but exports UTF-8. CHARSET:NONE tells
     # ofxtools to decode as utf_8. Files declaring ISO-8859-1 are unaffected.
     raw = path.read_bytes().replace(b'CHARSET:1252', b'CHARSET:NONE', 1)
     parser = OFXTree()
-    parser.parse(io.BytesIO(raw))
 
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=OFXTypeWarning)
-        try:
+    try:
+        parser.parse(io.BytesIO(raw))
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', category=OFXTypeWarning)
             ofx = parser.convert()
-        except OFXSpecError as exc:  # pragma: no cover - exercised via unit tests
-            raise ValueError(f'Failed to parse OFX file: {path}') from exc
+    except (OFXHeaderError, ParseError, OFXSpecError) as exc:
+        raise ValueError(f'Failed to parse OFX file: {path}') from exc
 
     for statement in getattr(ofx, 'statements', []) or []:
         account = getattr(statement, 'account', None)

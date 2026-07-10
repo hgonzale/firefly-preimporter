@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7.0 — 2026-07-10
+
+### Added
+- `.qbo` files are now recognized as OFX input, matching `.ofx`/`.qfx` handling.
+- Files with unrecognized extensions are no longer rejected/skipped outright: if
+  their content looks like a valid OFX header, they're detected as OFX
+  automatically. Covers banks that export OFX-compatible data under unexpected
+  extensions.
+
+### Fixed
+- Malformed or non-OFX file content passed to the OFX processor now raises a
+  clean `ValueError` ("Failed to parse OFX file") instead of an uncaught
+  `SyntaxError` from `ofxtools`.
+- A zero-byte OFX/QFX/QBO file no longer hangs the CLI indefinitely.
+
 ## v0.6.3 — 2026-07-08
 
 ### Changed
