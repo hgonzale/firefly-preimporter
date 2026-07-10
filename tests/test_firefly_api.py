@@ -710,6 +710,23 @@ def test_fetch_existing_transactions_returns_fingerprints() -> None:
     session.get.assert_called_once()
 
 
+def test_fetch_existing_transactions_widens_single_day_range() -> None:
+    """Firefly's API rejects start == end, so a single-transaction-day payload
+    must widen the query range by a day rather than send start == end."""
+    payload = _make_payload(transactions=[_make_split()])  # single split, single date
+    session = Mock(spec=requests.Session)
+    response = Mock(spec=requests.Response)
+    response.json.return_value = {'data': [], 'links': {'next': None}}
+    response.raise_for_status.return_value = None
+    session.get.return_value = response
+
+    firefly_api._fetch_existing_transactions(_settings(), [payload], session=session)  # pyright: ignore[reportPrivateUsage]
+
+    params = session.get.call_args.kwargs['params']
+    assert params['start'] == '2025-01-01'
+    assert params['end'] == '2025-01-02'
+
+
 def test_fetch_recent_account_transactions_happy_path() -> None:
     session = Mock(spec=requests.Session)
     response = Mock(spec=requests.Response)

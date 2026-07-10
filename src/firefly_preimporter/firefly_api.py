@@ -434,6 +434,10 @@ def _fetch_existing_transactions(
         raise ValueError('Firefly API settings are required')
     start_date = min(dates)
     end_date = max(dates)
+    if start_date == end_date:
+        # Firefly's API rejects start == end ("start must be a date before end"),
+        # so widen the range by a day for single-transaction-day payloads.
+        end_date = (datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
 
     http = session or requests.Session()
     headers = {

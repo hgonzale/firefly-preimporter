@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.7.2 — 2026-07-10
+
+### Fixed
+- Pre-fetching existing Firefly transactions for near-duplicate detection no
+  longer 422s for single-transaction-day files. Firefly's API requires
+  `start` to be strictly before `end`; the date range is now widened by a
+  day when a batch only spans a single date.
+
 ## v0.7.1 — 2026-07-10
 
 ### Fixed
