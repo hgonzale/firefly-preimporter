@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from firefly_preimporter.config import AzureAiSettings, FireflyPreimporterSettings, load_settings
+from firefly_preimporter.config import AccountPair, AzureAiSettings, FireflyPreimporterSettings, load_settings
 
 TOKEN_PLACEHOLDER = 'token-' + 'placeholder'
 IMPORT_PLACEHOLDER = 'import-' + 'placeholder'
@@ -204,6 +204,88 @@ def test_load_settings_azure_ai_missing_key_is_none(tmp_path: Path) -> None:
     )
     settings = load_settings(config_file)
     assert settings.common.azure_ai is None
+
+
+def test_load_settings_account_pairs_default_empty(tmp_path: Path) -> None:
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text(_MINIMAL_TOML, encoding='utf-8')
+    settings = load_settings(config_file)
+    assert settings.account_pairs == ()
+
+
+def test_load_settings_parses_account_pairs(tmp_path: Path) -> None:
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text(
+        textwrap.dedent(
+            f"""
+            [common]
+            personal_access_token = "{TOKEN_PLACEHOLDER}"
+            request_timeout = 30
+
+            [[account-pairs]]
+            payments_account_number = "9988776655"
+            purchases_account_number = "5474151647187316"
+            """
+        ),
+        encoding='utf-8',
+    )
+    settings = load_settings(config_file)
+    assert settings.account_pairs == (
+        AccountPair(payments_account_number='9988776655', purchases_account_number='5474151647187316'),
+    )
+
+
+def test_load_settings_parses_multiple_account_pairs(tmp_path: Path) -> None:
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text(
+        textwrap.dedent(
+            f"""
+            [common]
+            personal_access_token = "{TOKEN_PLACEHOLDER}"
+            request_timeout = 30
+
+            [[account-pairs]]
+            payments_account_number = "1111"
+            purchases_account_number = "2222"
+
+            [[account-pairs]]
+            payments_account_number = "3333"
+            purchases_account_number = "4444"
+            """
+        ),
+        encoding='utf-8',
+    )
+    settings = load_settings(config_file)
+    assert settings.account_pairs == (
+        AccountPair(payments_account_number='1111', purchases_account_number='2222'),
+        AccountPair(payments_account_number='3333', purchases_account_number='4444'),
+    )
+
+
+def test_load_settings_skips_malformed_account_pair(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """An entry missing a required key is skipped with a warning; valid entries still parse."""
+    config_file = tmp_path / 'config.toml'
+    config_file.write_text(
+        textwrap.dedent(
+            f"""
+            [common]
+            personal_access_token = "{TOKEN_PLACEHOLDER}"
+            request_timeout = 30
+
+            [[account-pairs]]
+            payments_account_number = "9988776655"
+
+            [[account-pairs]]
+            payments_account_number = "1111"
+            purchases_account_number = "2222"
+            """
+        ),
+        encoding='utf-8',
+    )
+    with caplog.at_level('WARNING'):
+        settings = load_settings(config_file)
+    assert settings.account_pairs == (AccountPair(payments_account_number='1111', purchases_account_number='2222'),)
+    assert 'Skipping' in caplog.text
 
 
 def test_load_settings_missing_required_field_raises(tmp_path: Path) -> None:

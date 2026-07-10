@@ -12,6 +12,7 @@ import pytest
 from firefly_preimporter import cli, firefly_api
 from firefly_preimporter.account_matcher import AccountSuggestion
 from firefly_preimporter.config import (
+    AccountPair,
     AzureAiSettings,
     CommonSettings,
     FidiSettings,
@@ -30,6 +31,7 @@ def _settings(
     default_upload: str | None = None,
     azure_ai: AzureAiSettings | None = None,
     allow_duplicates: bool = False,
+    account_pairs: tuple[AccountPair, ...] = (),
 ) -> FireflyPreimporterSettings:
     return FireflyPreimporterSettings(
         common=CommonSettings(
@@ -47,6 +49,7 @@ def _settings(
             api_base='https://example/api',
             allow_duplicates=allow_duplicates,
         ),
+        account_pairs=account_pairs,
     )
 
 
@@ -433,6 +436,87 @@ def test_resolve_account_id_all_digit_no_match_returns_raw(
     result = ProcessingResult(job=dummy_job, account_id='5474151647187316')
     resolved = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
     assert resolved == '5474151647187316'
+
+
+def test_resolve_account_id_applies_pairing_before_match(
+    monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob
+) -> None:
+    """A file-derived account number matching a configured payments account number
+    is redirected to the paired purchases account number before Firefly lookup."""
+    args = Namespace(upload=True, quiet=False)
+    pair = AccountPair(payments_account_number='9988776655', purchases_account_number='5474151647187316')
+    settings = _settings(account_pairs=(pair,))
+    accounts: list[dict[str, object]] = [
+        {'id': '42', 'attributes': {'name': 'Card', 'account_number': '5474151647187316'}}
+    ]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    result = ProcessingResult(job=dummy_job, account_id='9988776655')
+    resolved = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
+    assert resolved == '42'
+
+
+def test_resolve_account_id_pairing_no_match_passthrough(
+    monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob
+) -> None:
+    """Account numbers not present in any configured pair resolve exactly as before."""
+    args = Namespace(upload=True)
+    pair = AccountPair(payments_account_number='9988776655', purchases_account_number='5474151647187316')
+    settings = _settings(account_pairs=(pair,))
+    accounts: list[dict[str, object]] = [{'id': '55', 'attributes': {'name': 'Match', 'account_number': 'OFX-999'}}]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    result = ProcessingResult(job=dummy_job, account_id='OFX-999')
+    resolved = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
+    assert resolved == '55'
+
+
+def test_resolve_account_id_multiple_pairs_configured(
+    monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob
+) -> None:
+    """The correct pair is selected when several are configured."""
+    args = Namespace(upload=True, quiet=False)
+    pairs = (
+        AccountPair(payments_account_number='1111', purchases_account_number='2222'),
+        AccountPair(payments_account_number='3333', purchases_account_number='4444'),
+    )
+    settings = _settings(account_pairs=pairs)
+    accounts: list[dict[str, object]] = [{'id': '77', 'attributes': {'name': 'Card 2', 'account_number': '4444'}}]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    result = ProcessingResult(job=dummy_job, account_id='3333')
+    resolved = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
+    assert resolved == '77'
+
+
+def test_resolve_account_id_pairing_flag_path_unaffected(
+    monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob
+) -> None:
+    """The --account-id flag is an explicit override and must not be redirected by pairing."""
+    pair = AccountPair(payments_account_number='OFX-100', purchases_account_number='OFX-200')
+    settings = _settings(account_pairs=(pair,))
+    args = Namespace(upload=True, account_id='OFX-100')
+    accounts: list[dict[str, object]] = [{'id': '77', 'attributes': {'name': 'Card', 'account_number': 'OFX-100'}}]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    result = ProcessingResult(job=dummy_job, account_id=None)
+    resolved = cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
+    assert resolved == '77'
+
+
+def test_resolve_account_id_pairing_emits_redirect_message(
+    monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A pairing substitution logs a masked redirect message via _emit."""
+    args = Namespace(upload=True, quiet=False, verbose=False)
+    pair = AccountPair(payments_account_number='9988776655', purchases_account_number='5474151647187316')
+    settings = _settings(account_pairs=(pair,))
+    accounts: list[dict[str, object]] = [
+        {'id': '42', 'attributes': {'name': 'Card', 'account_number': '5474151647187316'}}
+    ]
+    monkeypatch.setattr(cli, 'fetch_asset_accounts', lambda _settings: accounts)
+    result = ProcessingResult(job=dummy_job, account_id='9988776655')
+    with caplog.at_level(logging.INFO, logger='firefly_preimporter.cli'):
+        cli._resolve_account_id(result, args, settings)  # pyright: ignore[reportPrivateUsage]
+    assert any('Redirecting account' in record.message for record in caplog.records)
+    assert any('6655' in record.message and '9988776655' not in record.message for record in caplog.records)
+    assert any('7316' in record.message and '5474151647187316' not in record.message for record in caplog.records)
 
 
 def test_resolve_account_id_prompts_each_job(monkeypatch: pytest.MonkeyPatch, dummy_job: ProcessingJob) -> None:
@@ -1067,3 +1151,162 @@ def test_prompt_account_id_no_ai_config_skips_suggestion(
 
     out = capsys.readouterr().out
     assert 'AI' not in out
+
+
+# --- _prompt_account_id AI-filtered display tests ---
+
+
+def test_prompt_account_id_suggestions_present_only_shows_suggested_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+        {'id': '7', 'attributes': {'name': 'Home Depot', 'account_number': '8823'}},
+        {'id': '9', 'attributes': {'name': 'Savings', 'account_number': '1122'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    settings = _firefly_settings_with_ai()
+
+    suggestion = _ai_suggestions([{'account_id': 3, 'confidence': 'high'}])
+    monkeypatch.setattr(cli, 'suggest_account', lambda *_a, **_k: suggestion)
+    monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
+    monkeypatch.setattr('builtins.input', lambda _prompt: '')
+
+    cli._prompt_account_id(result, accounts, settings=settings)  # pyright: ignore[reportPrivateUsage]
+
+    out = capsys.readouterr().out
+    assert 'Chase Freedom' in out
+    assert 'Home Depot' not in out
+    assert 'Savings' not in out
+
+
+def test_prompt_account_id_no_suggestions_shows_full_list(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Regression: with no AI suggestions, every account is still shown."""
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+        {'id': '7', 'attributes': {'name': 'Home Depot', 'account_number': '8823'}},
+        {'id': '9', 'attributes': {'name': 'Savings', 'account_number': '1122'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    monkeypatch.setattr('builtins.input', lambda _prompt: '1')
+
+    cli._prompt_account_id(result, accounts, settings=None)  # pyright: ignore[reportPrivateUsage]
+
+    out = capsys.readouterr().out
+    assert 'Chase Freedom' in out
+    assert 'Home Depot' in out
+    assert 'Savings' in out
+
+
+def test_prompt_account_id_reveal_all_shows_full_list_and_renumbers(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+        {'id': '7', 'attributes': {'name': 'Home Depot', 'account_number': '8823'}},
+        {'id': '9', 'attributes': {'name': 'Savings', 'account_number': '1122'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    settings = _firefly_settings_with_ai()
+
+    suggestion = _ai_suggestions([{'account_id': 3, 'confidence': 'high'}])
+    monkeypatch.setattr(cli, 'suggest_account', lambda *_a, **_k: suggestion)
+    monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
+
+    # Reveal the full list, then select the 2nd account in that full list (Home Depot).
+    responses = iter(['a', '2'])
+    monkeypatch.setattr('builtins.input', lambda _prompt: next(responses))
+
+    selected = cli._prompt_account_id(result, accounts, settings=settings)  # pyright: ignore[reportPrivateUsage]
+
+    assert selected == '7'
+    out = capsys.readouterr().out
+    assert 'Home Depot' in out
+    assert 'Savings' in out
+
+
+def test_prompt_account_id_reveal_all_updates_hint_text(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+) -> None:
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+        {'id': '7', 'attributes': {'name': 'Home Depot', 'account_number': '8823'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    settings = _firefly_settings_with_ai()
+
+    suggestion = _ai_suggestions([{'account_id': 3, 'confidence': 'high'}])
+    monkeypatch.setattr(cli, 'suggest_account', lambda *_a, **_k: suggestion)
+    monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
+
+    prompts: list[str] = []
+
+    def _fake_input(prompt: str) -> str:
+        prompts.append(prompt)
+        return 'a' if len(prompts) == 1 else '1'
+
+    monkeypatch.setattr('builtins.input', _fake_input)
+
+    cli._prompt_account_id(result, accounts, settings=settings)  # pyright: ignore[reportPrivateUsage]
+
+    assert 'hidden' in prompts[0]
+    assert 'hidden' not in prompts[1]
+
+
+def test_prompt_account_id_exact_id_fallback_works_when_filtered(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+) -> None:
+    """A non-suggested account can still be selected by typing its exact Firefly ID."""
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+        {'id': '7', 'attributes': {'name': 'Home Depot', 'account_number': '8823'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    settings = _firefly_settings_with_ai()
+
+    suggestion = _ai_suggestions([{'account_id': 3, 'confidence': 'high'}])
+    monkeypatch.setattr(cli, 'suggest_account', lambda *_a, **_k: suggestion)
+    monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
+    monkeypatch.setattr('builtins.input', lambda _prompt: '7')
+
+    selected = cli._prompt_account_id(result, accounts, settings=settings)  # pyright: ignore[reportPrivateUsage]
+    assert selected == '7'
+
+
+def test_prompt_account_id_hint_mentions_hidden_count_when_filtered(
+    monkeypatch: pytest.MonkeyPatch,
+    dummy_job: ProcessingJob,
+) -> None:
+    accounts: list[dict[str, object]] = [
+        {'id': '3', 'attributes': {'name': 'Chase Freedom', 'account_number': '4521'}},
+        {'id': '7', 'attributes': {'name': 'Home Depot', 'account_number': '8823'}},
+        {'id': '9', 'attributes': {'name': 'Savings', 'account_number': '1122'}},
+    ]
+    result = ProcessingResult(job=dummy_job, transactions=[])
+    settings = _firefly_settings_with_ai()
+
+    suggestion = _ai_suggestions([{'account_id': 3, 'confidence': 'high'}])
+    monkeypatch.setattr(cli, 'suggest_account', lambda *_a, **_k: suggestion)
+    monkeypatch.setattr(cli, 'fetch_recent_account_transactions', lambda *_a, **_k: [])
+
+    prompts: list[str] = []
+
+    def _fake_input(prompt: str) -> str:
+        prompts.append(prompt)
+        return ''
+
+    monkeypatch.setattr('builtins.input', _fake_input)
+
+    cli._prompt_account_id(result, accounts, settings=settings)  # pyright: ignore[reportPrivateUsage]
+
+    assert '2 hidden' in prompts[0]

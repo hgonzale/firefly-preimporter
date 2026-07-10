@@ -57,12 +57,28 @@ class FireflyApiSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class AccountPair:
+    """Maps a payments/deposits-only account number to its paired purchases account.
+
+    Some banks report card purchases and card payments/deposits under two different
+    account numbers in exported OFX/QBO/CSV files, even though both represent the same
+    physical card. Configuring a pair lets only the purchases account be registered in
+    Firefly; any file whose raw account number matches ``payments_account_number`` has
+    its transactions redirected to ``purchases_account_number`` before Firefly lookup.
+    """
+
+    payments_account_number: str
+    purchases_account_number: str
+
+
+@dataclass(frozen=True, slots=True)
 class FireflyPreimporterSettings:
     """Structured settings for Firefly Preimporter."""
 
     common: CommonSettings
     fidi: FidiSettings | None = None
     firefly_api: FireflyApiSettings | None = None
+    account_pairs: tuple[AccountPair, ...] = ()
 
 
 def _prepare_settings(raw: Mapping[str, Any]) -> FireflyPreimporterSettings:
@@ -116,10 +132,27 @@ def _prepare_settings(raw: Mapping[str, Any]) -> FireflyPreimporterSettings:
             near_duplicate_threshold=float(raw_fa.get('near_duplicate_threshold', 0.5)),
         )
 
+    account_pairs: list[AccountPair] = []
+    for entry in raw.get('account_pairs', []):
+        if not isinstance(entry, Mapping):
+            LOGGER.warning('Skipping malformed [[account-pairs]] entry (not a table): %r', entry)
+            continue
+        entry_map = cast('Mapping[str, object]', entry)
+        payments_num = str(entry_map.get('payments_account_number') or '').strip()
+        purchases_num = str(entry_map.get('purchases_account_number') or '').strip()
+        if not payments_num or not purchases_num:
+            LOGGER.warning(
+                'Skipping [[account-pairs]] entry missing payments_account_number or purchases_account_number: %r',
+                entry,
+            )
+            continue
+        account_pairs.append(AccountPair(payments_account_number=payments_num, purchases_account_number=purchases_num))
+
     return FireflyPreimporterSettings(
         common=common,
         fidi=fidi,
         firefly_api=firefly_api,
+        account_pairs=tuple(account_pairs),
     )
 
 
@@ -161,5 +194,7 @@ def load_settings(path: Path | None = None) -> FireflyPreimporterSettings:
         common['azure_ai'] = common.pop('azure-ai')
     if 'fidi' in raw and 'json-config' in raw['fidi']:
         raw['fidi']['json_config'] = raw['fidi'].pop('json-config')
+    if 'account-pairs' in raw:
+        raw['account_pairs'] = raw.pop('account-pairs')
 
     return _prepare_settings(raw)

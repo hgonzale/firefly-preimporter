@@ -32,6 +32,7 @@ from firefly_preimporter.output import build_csv_payload, build_json_config, wri
 from firefly_preimporter.processors.csv_processor import process_csv as process_csv_file
 from firefly_preimporter.processors.ofx_processor import process_ofx as process_ofx_file
 from firefly_preimporter.uploader import FidiUploader
+from firefly_preimporter.utils import mask_account_number
 
 
 class SkipJobError(Exception):
@@ -118,6 +119,16 @@ def _match_account_number(account_number: str, accounts: list[dict[str, object]]
             if acct_num and acct_num == candidate:
                 return str(account.get('id'))
     return None
+
+
+def _apply_account_pairing(account_number: str, settings: FireflyPreimporterSettings) -> str:
+    """Redirect a payments/deposits account number to its paired purchases account, if configured."""
+
+    candidate = account_number.strip()
+    for pair in settings.account_pairs:
+        if pair.payments_account_number == candidate:
+            return pair.purchases_account_number
+    return account_number
 
 
 def _generate_batch_tag() -> str:
@@ -301,22 +312,48 @@ def _prompt_account_id(
     suggested_ids = {s.account_id for s in suggestions}
     is_single = len(suggestions) == 1
 
-    # --- Render account list ---
-    header = _style_text('Available asset accounts:', 'cyan', 'bold', enabled=color)
-    print(header)
-    for idx, account in enumerate(accounts, start=1):
-        acct_id = str(account.get('id', ''))
-        index_label = _style_text(f'[{idx}]', 'cyan', enabled=color)
-        label = format_account_label(account)
-        if acct_id in suggested_ids:
-            suggestion = next(s for s in suggestions if s.account_id == acct_id)
-            if is_single:
-                ai_tag = _style_text(f'[AI ✓ {suggestion.confidence}]', 'green', 'bold', enabled=color)
+    def _render_account_list(account_list: list[dict[str, object]]) -> None:
+        header = _style_text('Available asset accounts:', 'cyan', 'bold', enabled=color)
+        print(header)
+        for idx, account in enumerate(account_list, start=1):
+            acct_id = str(account.get('id', ''))
+            index_label = _style_text(f'[{idx}]', 'cyan', enabled=color)
+            label = format_account_label(account)
+            if acct_id in suggested_ids:
+                suggestion = next(s for s in suggestions if s.account_id == acct_id)
+                if is_single:
+                    ai_tag = _style_text(f'[AI ✓ {suggestion.confidence}]', 'green', 'bold', enabled=color)
+                else:
+                    ai_tag = _style_text(f'[AI ? {suggestion.confidence}]', 'yellow', 'bold', enabled=color)
+                print(f'  {index_label} {label}  {ai_tag}')
             else:
-                ai_tag = _style_text(f'[AI ? {suggestion.confidence}]', 'yellow', 'bold', enabled=color)
-            print(f'  {index_label} {label}  {ai_tag}')
-        else:
-            print(f'  {index_label} {label}')
+                print(f'  {index_label} {label}')
+
+    def _compute_default(
+        account_list: list[dict[str, object]],
+    ) -> tuple[int | None, dict[str, object] | None]:
+        high_count = sum(1 for s in suggestions if s.confidence == 'high')
+        if suggestions and suggestions[0].confidence == 'high' and high_count == 1:
+            for idx, account in enumerate(account_list, start=1):
+                if str(account.get('id')) == suggestions[0].account_id:
+                    return idx, account
+        return None, None
+
+    def _build_hint(account_list: list[dict[str, object]], default_idx: int | None) -> str:
+        hint_parts: list[str] = []
+        if default_idx is not None:
+            hint_parts.append(f'Enter for [{default_idx}]')
+        hint_parts += ['number/id', '"p" to preview', '"s" to skip']
+        hidden_count = len(accounts) - len(account_list)
+        if hidden_count > 0:
+            hint_parts.append(f'"a" for all {len(accounts)} accounts ({hidden_count} hidden)')
+        return _style_text(f'({", ".join(hint_parts)})', 'dim', enabled=color)
+
+    # --- Render account list: AI-suggested accounts only, when available ---
+    displayed_accounts: list[dict[str, object]] = (
+        [a for a in accounts if str(a.get('id', '')) in suggested_ids] if suggestions else accounts
+    )
+    _render_account_list(displayed_accounts)
 
     if suggestions:
         print()
@@ -329,24 +366,10 @@ def _prompt_account_id(
             for reason in reasons:
                 print(f'  - {reason}')
 
-    # --- Determine default (single high-confidence suggestion) ---
-    default_idx: int | None = None
-    default_account: dict[str, object] | None = None
-    high_count = sum(1 for s in suggestions if s.confidence == 'high')
-    if suggestions and suggestions[0].confidence == 'high' and high_count == 1:
-        for idx, account in enumerate(accounts, start=1):
-            if str(account.get('id')) == suggestions[0].account_id:
-                default_idx = idx
-                default_account = account
-                break
+    default_idx, default_account = _compute_default(displayed_accounts)
 
     file_label = _style_text(result.job.source_path.name, 'cyan', 'bold', enabled=color)
-    hint_parts: list[str] = []
-    if default_idx is not None:
-        hint_parts.append(f'Enter for [{default_idx}]')
-    hint_parts += ['number/id', '"p" to preview', '"s" to skip']
-    hint = _style_text(f'({", ".join(hint_parts)})', 'dim', enabled=color)
-    prompt = f'Select account for {file_label} {hint}: '
+    prompt = f'Select account for {file_label} {_build_hint(displayed_accounts, default_idx)}: '
 
     while True:
         response = input(prompt).strip()
@@ -363,10 +386,16 @@ def _prompt_account_id(
             continue
         if lowered in {'s', 'skip'}:
             raise SkipJobError(f'Skipping {result.job.source_path} at user request.')
+        if lowered in {'a', 'all'}:
+            displayed_accounts = accounts
+            _render_account_list(displayed_accounts)
+            default_idx, default_account = _compute_default(displayed_accounts)
+            prompt = f'Select account for {file_label} {_build_hint(displayed_accounts, default_idx)}: '
+            continue
         if response.isdigit():
             selected = int(response)
-            if 1 <= selected <= len(accounts):
-                selection = accounts[selected - 1]
+            if 1 <= selected <= len(displayed_accounts):
+                selection = displayed_accounts[selected - 1]
                 selected_label = _style_text('Selected:', 'green', 'bold', enabled=color)
                 print(f'{selected_label} {format_account_label(selection)}')
                 print()
@@ -400,9 +429,17 @@ def _resolve_account_id(
             return result.account_id
         if settings is not None:
             accounts = _get_asset_accounts(args, settings)
-            matched = _match_account_number(result.account_id, accounts)
+            raw_account_number = _apply_account_pairing(result.account_id, settings)
+            if raw_account_number != result.account_id:
+                _emit(
+                    f'Redirecting account {mask_account_number(result.account_id)} (payments) '
+                    f'-> account {mask_account_number(raw_account_number)} (purchases)',
+                    args,
+                )
+            matched = _match_account_number(raw_account_number, accounts)
             if matched:
                 return matched
+            return raw_account_number
         return result.account_id
     account_flag = getattr(args, 'account_id', None)
     if account_flag:

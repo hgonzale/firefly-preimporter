@@ -32,3 +32,12 @@ flow = "file"   # "file" | "csv" | "json"
 [firefly-api]
 api_base = "https://firefly.example.com/api/v1"
 allow_duplicates = false
+
+# Pair a credit card's payments/deposits account with its purchases account
+# when your bank reports them under two different account numbers for the
+# same physical card. Only the purchases account needs to exist in Firefly —
+# any file whose account number matches "payments_account_number" below has
+# its transactions redirected to "purchases_account_number" instead.
+# [[account-pairs]]
+# payments_account_number = "9988776655"
+# purchases_account_number = "5474151647187316"

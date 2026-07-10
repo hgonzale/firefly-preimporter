@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.0 — 2026-07-10
+
+### Added
+- Configurable account pairing: redirect a payments/deposits account number
+  to a paired purchases account before resolution, so banks that split a
+  single card across two account numbers only need one Firefly account.
+- The interactive account prompt now shows only AI-suggested accounts when
+  suggestions are available, instead of the full asset account list. Type
+  `a`/`all` to reveal every account.
+
 ## v0.7.2 — 2026-07-10
 
 ### Fixed
